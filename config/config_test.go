@@ -678,6 +678,172 @@ protocols:
 	}
 }
 
+func TestLoad_SessionAndSchedulerDefaults(t *testing.T) {
+	cfg := `
+core:
+  sandbox_type: exec
+llm:
+  default: gpt4o
+  backends:
+    - name: gpt4o
+      base_url: https://example.test
+      api_key: test
+      model: x
+      max_tokens: 1
+protocols:
+  - name: http
+    enabled: true
+    config: {}
+`
+	got, err := Load(writeTempConfig(t, cfg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Sessions.Path == "" || got.Sessions.DefaultMergeConflictMode != "last-write-wins" {
+		t.Fatalf("unexpected session defaults: %+v", got.Sessions)
+	}
+	if got.Scheduler.TickMs != 1000 {
+		t.Fatalf("unexpected scheduler defaults: %+v", got.Scheduler)
+	}
+}
+
+func TestLoad_RejectInvalidSessionAndSchedulerValidation(t *testing.T) {
+	cfg := `
+core:
+  sandbox_type: exec
+sessions:
+  summarization_threshold: 4
+  summarization_keep_recent: 4
+scheduler:
+  schedules:
+    - schedule_id: nightly
+      cron_expr: "* * * * *"
+      target: nightly
+      concurrency_policy: maybe
+llm:
+  default: gpt4o
+  backends:
+    - name: gpt4o
+      base_url: https://example.test
+      api_key: test
+      model: x
+      max_tokens: 1
+protocols:
+  - name: http
+    enabled: true
+    config: {}
+`
+	if _, err := Load(writeTempConfig(t, cfg)); err == nil {
+		t.Fatal("expected session/scheduler validation error")
+	}
+}
+
+func TestValidateSessionsAndSchedulerDirectBranches(t *testing.T) {
+	root := &Root{
+		Sessions: SessionConfig{
+			DefaultMergeConflictMode: "manual",
+			RetentionMaxMessages:     5,
+			SummarizationThreshold:   5,
+			SummarizationKeepRecent:  2,
+		},
+		Scheduler: SchedulerConfig{
+			TickMs: 10,
+			Schedules: []ScheduleConfig{{
+				ID:                "nightly",
+				CronExpr:          "*/5 * * * *",
+				Target:            "workflow-nightly",
+				ConcurrencyPolicy: "replace",
+				MissedRunPolicy:   "run_once",
+				RetryLimit:        2,
+				RetryBackoffMs:    25,
+				SessionMode:       "persistent",
+			}},
+		},
+	}
+	if err := root.validateSessions(); err != nil {
+		t.Fatalf("expected valid sessions config, got %v", err)
+	}
+	if err := root.validateScheduler(); err != nil {
+		t.Fatalf("expected valid scheduler config, got %v", err)
+	}
+
+	root.Sessions.DefaultMergeConflictMode = "broken"
+	if err := root.validateSessions(); err == nil {
+		t.Fatal("expected invalid merge mode error")
+	}
+	root.Sessions.DefaultMergeConflictMode = "fail"
+	root.Sessions.RetentionMaxMessages = -1
+	if err := root.validateSessions(); err == nil {
+		t.Fatal("expected invalid retention error")
+	}
+	root.Sessions.RetentionMaxMessages = 5
+	root.Sessions.SummarizationThreshold = -1
+	if err := root.validateSessions(); err == nil {
+		t.Fatal("expected invalid threshold error")
+	}
+	root.Sessions.SummarizationThreshold = 5
+	root.Sessions.SummarizationKeepRecent = -1
+	if err := root.validateSessions(); err == nil {
+		t.Fatal("expected invalid keep recent error")
+	}
+
+	root = &Root{Scheduler: SchedulerConfig{TickMs: -1}}
+	if err := root.validateScheduler(); err == nil {
+		t.Fatal("expected negative tick validation error")
+	}
+	root = &Root{Scheduler: SchedulerConfig{Schedules: []ScheduleConfig{{ID: "a", CronExpr: "* * * * *", Target: "x", ConcurrencyPolicy: "invalid"}}}}
+	if err := root.validateScheduler(); err == nil {
+		t.Fatal("expected invalid concurrency error")
+	}
+	root = &Root{Scheduler: SchedulerConfig{Schedules: []ScheduleConfig{{ID: "a", CronExpr: "* * * * *", Target: "x", MissedRunPolicy: "invalid"}}}}
+	if err := root.validateScheduler(); err == nil {
+		t.Fatal("expected invalid missed run error")
+	}
+	root = &Root{Scheduler: SchedulerConfig{Schedules: []ScheduleConfig{{ID: "a", CronExpr: "* * * * *", Target: "x", RetryLimit: -1}}}}
+	if err := root.validateScheduler(); err == nil {
+		t.Fatal("expected invalid retry limit error")
+	}
+	root = &Root{Scheduler: SchedulerConfig{Schedules: []ScheduleConfig{{ID: "a", CronExpr: "* * * * *", Target: "x", RetryBackoffMs: -1}}}}
+	if err := root.validateScheduler(); err == nil {
+		t.Fatal("expected invalid retry backoff error")
+	}
+	root = &Root{Scheduler: SchedulerConfig{Schedules: []ScheduleConfig{{ID: "a", CronExpr: "* * * * *", Target: "x", SessionMode: "invalid"}}}}
+	if err := root.validateScheduler(); err == nil {
+		t.Fatal("expected invalid session mode error")
+	}
+}
+
+func TestValidateProtocolAdditionalBranches(t *testing.T) {
+	if err := validateProtocol("pubsub", PluginRef{Name: "pubsub", Enabled: true, Config: map[string]interface{}{
+		"broker":    "solace",
+		"topic_in":  "in",
+		"topic_out": "out",
+	}}); err != nil {
+		t.Fatalf("expected valid pubsub protocol, got %v", err)
+	}
+	if err := validateProtocol("telegram", PluginRef{Name: "telegram", Enabled: true, Config: map[string]interface{}{"token": "x"}}); err != nil {
+		t.Fatalf("expected valid telegram protocol, got %v", err)
+	}
+	if err := validateProtocol("webhook", PluginRef{Name: "webhook", Enabled: true, Config: map[string]interface{}{"path": "/hook"}}); err != nil {
+		t.Fatalf("expected valid webhook protocol, got %v", err)
+	}
+	if err := validateProtocol("a2a", PluginRef{Name: "a2a", Enabled: true, Config: map[string]interface{}{"path": "/a2a"}}); err != nil {
+		t.Fatalf("expected valid a2a protocol, got %v", err)
+	}
+	if err := validateProtocol("pubsub", PluginRef{Name: "pubsub", Enabled: true, Config: map[string]interface{}{"broker": "bad"}}); err == nil {
+		t.Fatal("expected invalid pubsub broker error")
+	}
+	if err := validateProtocol("telegram", PluginRef{Name: "telegram", Enabled: true, Config: map[string]interface{}{}}); err == nil {
+		t.Fatal("expected missing telegram token error")
+	}
+	if err := validateProtocol("webhook", PluginRef{Name: "webhook", Enabled: true, Config: map[string]interface{}{"path": "bad"}}); err == nil {
+		t.Fatal("expected invalid webhook path error")
+	}
+	if err := validateProtocol("a2a", PluginRef{Name: "a2a", Enabled: true, Config: map[string]interface{}{"path": "bad"}}); err == nil {
+		t.Fatal("expected invalid a2a path error")
+	}
+}
+
 func writeTempConfig(t *testing.T, content string) string {
 	t.Helper()
 	dir := t.TempDir()

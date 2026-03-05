@@ -16,6 +16,8 @@ type Root struct {
 	Core       CoreConfig        `yaml:"core"`
 	OTEL       OTELConfig        `yaml:"otel"`
 	LLM        LLMPool           `yaml:"llm"`
+	Sessions   SessionConfig     `yaml:"sessions"`
+	Scheduler  SchedulerConfig   `yaml:"scheduler"`
 	Protocols  []PluginRef       `yaml:"protocols"`
 	Agents     []AgentConfig     `yaml:"agents"`
 	Workflows  []WorkflowConfig  `yaml:"workflows"`
@@ -134,6 +136,39 @@ type LLMPool struct {
 	Backends []LLMConfig `yaml:"backends"`
 }
 
+type SessionConfig struct {
+	Enabled                  bool   `yaml:"enabled"`
+	Path                     string `yaml:"path"`
+	ResumeOnInbound          bool   `yaml:"resume_on_inbound"`
+	RetentionMaxMessages     int    `yaml:"retention_max_messages"`
+	SummarizationThreshold   int    `yaml:"summarization_threshold"`
+	SummarizationKeepRecent  int    `yaml:"summarization_keep_recent"`
+	DefaultMergeConflictMode string `yaml:"default_merge_conflict_mode"`
+}
+
+type SchedulerConfig struct {
+	Enabled   bool             `yaml:"enabled"`
+	TickMs    int              `yaml:"tick_ms"`
+	Schedules []ScheduleConfig `yaml:"schedules"`
+}
+
+type ScheduleConfig struct {
+	ID                string `yaml:"schedule_id"`
+	CronExpr          string `yaml:"cron_expr"`
+	Timezone          string `yaml:"timezone"`
+	Target            string `yaml:"target"`
+	PayloadTemplate   string `yaml:"payload_template"`
+	ConcurrencyPolicy string `yaml:"concurrency_policy"`
+	Enabled           bool   `yaml:"enabled"`
+	MissedRunPolicy   string `yaml:"missed_run_policy"`
+	RetryLimit        int    `yaml:"retry_limit"`
+	RetryBackoffMs    int    `yaml:"retry_backoff_ms"`
+	SessionMode       string `yaml:"session_mode"`
+	Tenant            string `yaml:"tenant"`
+	ClientID          string `yaml:"client_id"`
+	ThreadID          string `yaml:"thread_id"`
+}
+
 type LLMConfig struct {
 	Name      string `yaml:"name"`
 	BaseURL   string `yaml:"base_url"`
@@ -232,6 +267,19 @@ func defaults() *Root {
 			FlushIntervalMs: 5000,
 			ConsoleDebug:    false,
 		},
+		Sessions: SessionConfig{
+			Enabled:                  false,
+			Path:                     "./.krill/sessions.json",
+			ResumeOnInbound:          true,
+			RetentionMaxMessages:     200,
+			SummarizationThreshold:   24,
+			SummarizationKeepRecent:  8,
+			DefaultMergeConflictMode: "last-write-wins",
+		},
+		Scheduler: SchedulerConfig{
+			Enabled: false,
+			TickMs:  1000,
+		},
 	}
 }
 
@@ -276,6 +324,86 @@ func (c *Root) validate() error {
 	}
 	if err := c.validateWorkflows(); err != nil {
 		return err
+	}
+	if err := c.validateSessions(); err != nil {
+		return err
+	}
+	if err := c.validateScheduler(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *Root) validateSessions() error {
+	mode := strings.ToLower(strings.TrimSpace(c.Sessions.DefaultMergeConflictMode))
+	if mode == "" {
+		mode = "last-write-wins"
+	}
+	if !slices.Contains([]string{"fail", "last-write-wins", "manual"}, mode) {
+		return fmt.Errorf("sessions.default_merge_conflict_mode must be fail|last-write-wins|manual")
+	}
+	if c.Sessions.RetentionMaxMessages < 0 {
+		return fmt.Errorf("sessions.retention_max_messages must be >= 0")
+	}
+	if c.Sessions.SummarizationThreshold < 0 {
+		return fmt.Errorf("sessions.summarization_threshold must be >= 0")
+	}
+	if c.Sessions.SummarizationKeepRecent < 0 {
+		return fmt.Errorf("sessions.summarization_keep_recent must be >= 0")
+	}
+	if c.Sessions.SummarizationThreshold > 0 && c.Sessions.SummarizationKeepRecent >= c.Sessions.SummarizationThreshold {
+		return fmt.Errorf("sessions.summarization_keep_recent must be < sessions.summarization_threshold")
+	}
+	return nil
+}
+
+func (c *Root) validateScheduler() error {
+	if c.Scheduler.TickMs < 0 {
+		return fmt.Errorf("scheduler.tick_ms must be >= 0")
+	}
+	seen := make(map[string]struct{}, len(c.Scheduler.Schedules))
+	for _, s := range c.Scheduler.Schedules {
+		id := strings.TrimSpace(s.ID)
+		if id == "" {
+			return fmt.Errorf("scheduler.schedules.schedule_id is required")
+		}
+		if _, ok := seen[id]; ok {
+			return fmt.Errorf("scheduler schedule %q configured more than once", id)
+		}
+		seen[id] = struct{}{}
+		if strings.TrimSpace(s.CronExpr) == "" {
+			return fmt.Errorf("scheduler schedule %q requires cron_expr", id)
+		}
+		if strings.TrimSpace(s.Target) == "" {
+			return fmt.Errorf("scheduler schedule %q requires target", id)
+		}
+		policy := strings.ToLower(strings.TrimSpace(s.ConcurrencyPolicy))
+		if policy == "" {
+			policy = "allow"
+		}
+		if !slices.Contains([]string{"allow", "forbid", "replace"}, policy) {
+			return fmt.Errorf("scheduler schedule %q concurrency_policy must be allow|forbid|replace", id)
+		}
+		missed := strings.ToLower(strings.TrimSpace(s.MissedRunPolicy))
+		if missed == "" {
+			missed = "skip"
+		}
+		if !slices.Contains([]string{"skip", "run_once"}, missed) {
+			return fmt.Errorf("scheduler schedule %q missed_run_policy must be skip|run_once", id)
+		}
+		if s.RetryLimit < 0 {
+			return fmt.Errorf("scheduler schedule %q retry_limit must be >= 0", id)
+		}
+		if s.RetryBackoffMs < 0 {
+			return fmt.Errorf("scheduler schedule %q retry_backoff_ms must be >= 0", id)
+		}
+		mode := strings.ToLower(strings.TrimSpace(s.SessionMode))
+		if mode == "" {
+			mode = "persistent"
+		}
+		if !slices.Contains([]string{"ephemeral", "persistent"}, mode) {
+			return fmt.Errorf("scheduler schedule %q session_mode must be ephemeral|persistent", id)
+		}
 	}
 	return nil
 }

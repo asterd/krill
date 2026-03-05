@@ -14,6 +14,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/krill/krill/internal/bus"
 	"github.com/krill/krill/internal/llm"
 	"github.com/krill/krill/internal/memory"
+	"github.com/krill/krill/internal/session"
 	"github.com/krill/krill/internal/skill"
 	"github.com/krill/krill/internal/telemetry"
 )
@@ -34,6 +36,7 @@ type Orch struct {
 	mem      memory.Store
 	llms     *llm.Pool
 	log      *slog.Logger
+	sessions *session.Service
 
 	mu      sync.Mutex
 	loops   map[string]*agent.Loop // clientID → loop
@@ -51,6 +54,7 @@ func New(
 	mem memory.Store,
 	llms *llm.Pool,
 	log *slog.Logger,
+	sessions *session.Service,
 ) (*Orch, error) {
 	maxClients := cfg.Core.MaxClients
 	if maxClients == 0 {
@@ -63,6 +67,7 @@ func New(
 		mem:      mem,
 		llms:     llms,
 		log:      log,
+		sessions: sessions,
 		loops:    make(map[string]*agent.Loop),
 		sem:      make(chan struct{}, maxClients),
 		wfStates: make(map[string]WorkflowState),
@@ -130,6 +135,7 @@ func (o *Orch) route(ctx context.Context, env *bus.Envelope) {
 			return
 		}
 
+		o.restoreSessionContext(env)
 		agentCfg := o.selectAgent(env, routeSpan.SpanID())
 		skillView := o.buildSkillView(agentCfg)
 		loop = agent.New(agentCfg, o.b, o.mem, skillView, o.llms, o.log)
@@ -177,6 +183,17 @@ func (o *Orch) selectAgent(env *bus.Envelope, parentSpanID string) config.AgentC
 		return defaultAgent(o.cfg.LLM.Default)
 	}
 
+	if env != nil && env.Meta != nil {
+		target := strings.TrimSpace(env.Meta["target_agent"])
+		if target != "" {
+			for _, a := range agents {
+				if strings.TrimSpace(a.Name) == target {
+					return a
+				}
+			}
+		}
+	}
+
 	// 1. Exact protocol match
 	for _, a := range agents {
 		if a.MatchProtocol != "" && a.MatchProtocol == env.SourceProtocol {
@@ -198,6 +215,60 @@ func (o *Orch) selectAgent(env *bus.Envelope, parentSpanID string) config.AgentC
 
 	telemetry.IncCounter(telemetry.MetricAgentHandoffTotal, 0, nil)
 	return agents[0]
+}
+
+func (o *Orch) restoreSessionContext(env *bus.Envelope) {
+	if o.sessions == nil || env == nil {
+		return
+	}
+	if history := o.mem.Get(env.ClientID, env.ThreadID, 1); len(history) > 0 {
+		return
+	}
+
+	if _, ok, err := o.sessions.ResumeByThread(env.ClientID, env.ThreadID, session.Provenance{
+		Actor:  "orchestrator",
+		Source: "route.resume",
+		Meta:   map[string]string{"client_id": env.ClientID, "thread_id": env.ThreadID},
+	}); err != nil {
+		o.log.Warn("session resume failed", "client", env.ClientID, "thread", env.ThreadID, "err", err)
+	} else if !ok && shouldOpenPersistentSession(env) {
+		_, err := o.sessions.Open(session.OpenRequest{
+			Tenant:   env.Meta["tenant"],
+			ClientID: env.ClientID,
+			ThreadID: env.ThreadID,
+			Mode:     session.Mode(defaultSessionMode(env.Meta["session_mode"])),
+		}, session.Provenance{Actor: "orchestrator", Source: "route.open"})
+		if err != nil {
+			o.log.Warn("session open failed", "client", env.ClientID, "thread", env.ThreadID, "err", err)
+		}
+	}
+
+	msgs, ok, err := o.sessions.RestoreMessagesByThread(env.ClientID, env.ThreadID)
+	if err != nil || !ok {
+		return
+	}
+	if hydrator, ok := o.mem.(session.Hydrator); ok {
+		hydrator.Hydrate(env.ClientID, env.ThreadID, msgs)
+		return
+	}
+	for _, msg := range msgs {
+		o.mem.Append(env.ClientID, env.ThreadID, msg)
+	}
+}
+
+func shouldOpenPersistentSession(env *bus.Envelope) bool {
+	if env == nil || env.Meta == nil {
+		return true
+	}
+	return defaultSessionMode(env.Meta["session_mode"]) == string(session.ModePersistent)
+}
+
+func defaultSessionMode(value string) string {
+	mode := strings.ToLower(strings.TrimSpace(value))
+	if mode == "" {
+		return string(session.ModePersistent)
+	}
+	return mode
 }
 
 // buildSkillView creates a per-loop skill view with the agent's eager skills pre-activated.

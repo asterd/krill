@@ -139,7 +139,7 @@ func newCoopTestOrch(t *testing.T, cfg *config.Root, failSpecialist bool) (*Orch
 	if err != nil {
 		t.Fatal(err)
 	}
-	orch, err := New(cfg, b, skillReg, mem, llmPool, logger)
+	orch, err := New(cfg, b, skillReg, mem, llmPool, logger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

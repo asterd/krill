@@ -11,12 +11,15 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/krill/krill/config"
 	"github.com/krill/krill/internal/bus"
 	"github.com/krill/krill/internal/llm"
 	"github.com/krill/krill/internal/memory"
 	"github.com/krill/krill/internal/orchestrator"
+	"github.com/krill/krill/internal/scheduler"
+	"github.com/krill/krill/internal/session"
 	"github.com/krill/krill/internal/skill"
 	"github.com/krill/krill/plugins/skill/builtins"
 )
@@ -28,6 +31,7 @@ type Engine struct {
 	bus    bus.Bus
 	protos []Protocol
 	orch   *orchestrator.Orch
+	sched  *scheduler.Engine
 	skills *skill.Registry
 }
 
@@ -58,10 +62,27 @@ func New(cfg *config.Root, log *slog.Logger) (*Engine, error) {
 		return nil, fmt.Errorf("memory: %w", err)
 	}
 
+	var sessionSvc *session.Service
+	if cfg.Sessions.Enabled {
+		sessionSvc, err = session.NewService(cfg.Sessions)
+		if err != nil {
+			return nil, fmt.Errorf("sessions: %w", err)
+		}
+		mem = session.WrapMemoryStore(mem, sessionSvc)
+	}
+
 	// 6. Orchestrator
-	orch, err := orchestrator.New(cfg, b, skillReg, mem, llmPool, log)
+	orch, err := orchestrator.New(cfg, b, skillReg, mem, llmPool, log, sessionSvc)
 	if err != nil {
 		return nil, fmt.Errorf("orchestrator: %w", err)
+	}
+
+	var sched *scheduler.Engine
+	if cfg.Scheduler.Enabled && len(cfg.Scheduler.Schedules) > 0 {
+		sched, err = scheduler.NewEngine(cfg.Scheduler, scheduler.BusExecutor(b), log)
+		if err != nil {
+			return nil, fmt.Errorf("scheduler: %w", err)
+		}
 	}
 
 	// 7. Protocol plugins — looked up from registry (plugins self-register via init())
@@ -87,6 +108,7 @@ func New(cfg *config.Root, log *slog.Logger) (*Engine, error) {
 		bus:    b,
 		protos: protos,
 		orch:   orch,
+		sched:  sched,
 		skills: skillReg,
 	}, nil
 }
@@ -107,6 +129,11 @@ func (e *Engine) Run(ctx context.Context) error {
 	// Start orchestrator first
 	if err := e.orch.Start(ctx); err != nil {
 		return fmt.Errorf("orchestrator: %w", err)
+	}
+	if e.sched != nil {
+		tick := time.Duration(e.cfg.Scheduler.TickMs) * time.Millisecond
+		e.sched.Start(ctx, tick)
+		e.log.Info("scheduler started", "schedules", len(e.cfg.Scheduler.Schedules), "tick_ms", e.cfg.Scheduler.TickMs)
 	}
 
 	// Start protocol plugins

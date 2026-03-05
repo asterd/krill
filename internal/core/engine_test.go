@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"log/slog"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -168,5 +169,110 @@ func TestRun_ProtocolStartError(t *testing.T) {
 	}
 	if err := e.Run(context.Background()); err == nil {
 		t.Fatal("expected protocol start error")
+	}
+}
+
+func TestNew_WithSessionsAndScheduler(t *testing.T) {
+	cfg := &config.Root{
+		Core: config.CoreConfig{
+			BusBuffer:      8,
+			MaxClients:     2,
+			SandboxType:    "exec",
+			ReplyBusPrefix: "__reply__",
+			SkillTimeoutMs: 1000,
+			MemoryWindow:   10,
+			MemoryBackend:  "ram",
+		},
+		Sessions: config.SessionConfig{
+			Enabled:                  true,
+			Path:                     filepath.Join(t.TempDir(), "sessions.json"),
+			RetentionMaxMessages:     5,
+			SummarizationThreshold:   4,
+			SummarizationKeepRecent:  2,
+			DefaultMergeConflictMode: "last-write-wins",
+		},
+		Scheduler: config.SchedulerConfig{
+			Enabled: true,
+			TickMs:  1,
+			Schedules: []config.ScheduleConfig{{
+				ID:              "tick",
+				CronExpr:        "* * * * *",
+				Target:          "wf-scheduled",
+				PayloadTemplate: "hello from schedule",
+				Enabled:         true,
+			}},
+		},
+		LLM: config.LLMPool{
+			Default: "mock",
+			Backends: []config.LLMConfig{
+				{Name: "mock", BaseURL: "https://example.test", APIKey: "test", Model: "test", MaxTokens: 128},
+			},
+		},
+	}
+	e, err := New(cfg, slog.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.sched == nil {
+		t.Fatal("expected scheduler to be initialized")
+	}
+}
+
+func TestRun_StartsScheduler(t *testing.T) {
+	cfg := &config.Root{
+		Core: config.CoreConfig{
+			BusBuffer:      8,
+			MaxClients:     2,
+			SandboxType:    "exec",
+			ReplyBusPrefix: "__reply__",
+			SkillTimeoutMs: 1000,
+			MemoryWindow:   10,
+			MemoryBackend:  "ram",
+		},
+		Scheduler: config.SchedulerConfig{
+			Enabled: true,
+			TickMs:  1,
+			Schedules: []config.ScheduleConfig{{
+				ID:              "tick",
+				CronExpr:        "* * * * *",
+				Target:          "wf-scheduled",
+				PayloadTemplate: "hello from schedule",
+				Enabled:         true,
+			}},
+		},
+		LLM: config.LLMPool{
+			Default: "mock",
+			Backends: []config.LLMConfig{
+				{Name: "mock", BaseURL: "https://example.test", APIKey: "test", Model: "test", MaxTokens: 128},
+			},
+		},
+	}
+	e, err := New(cfg, slog.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- e.Run(ctx) }()
+
+	deadline := time.Now().Add(250 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if e.sched != nil && len(e.sched.Audit()) > 0 {
+			cancel()
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		cancel()
+		t.Fatal("engine run did not stop")
+	}
+	if got := len(e.sched.Audit()); got == 0 {
+		t.Fatal("expected scheduler to emit audit entries during run")
 	}
 }

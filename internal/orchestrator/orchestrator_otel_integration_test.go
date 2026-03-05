@@ -85,7 +85,7 @@ func TestIntegration_TraceCorrelationIngressToReply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	orch, err := New(cfg, b, skillReg, mem, llmPool, logger)
+	orch, err := New(cfg, b, skillReg, mem, llmPool, logger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
