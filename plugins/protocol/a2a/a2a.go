@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/krill/krill/internal/bus"
 	"github.com/krill/krill/internal/core"
+	"github.com/krill/krill/internal/plugincfg"
 	"github.com/krill/krill/internal/schema"
 	"github.com/krill/krill/internal/telemetry"
 )
@@ -32,14 +33,14 @@ type Plugin struct {
 }
 
 func New(cfg map[string]interface{}) (*Plugin, error) {
-	p := strVal(cfg, "path")
+	p := plugincfg.String(cfg, "path")
 	if p == "" {
 		p = "/a2a/v1/envelope"
 	}
 	if !strings.HasPrefix(p, "/") {
 		return nil, fmt.Errorf("a2a path must start with '/'")
 	}
-	addr := strVal(cfg, "addr")
+	addr := plugincfg.String(cfg, "addr")
 	if addr == "" {
 		addr = ":8091"
 	}
@@ -170,14 +171,6 @@ func extractTraceID(r *http.Request) string {
 		}
 	}
 	return telemetry.NewTraceID()
-}
-
-func strVal(m map[string]interface{}, k string) string {
-	if m == nil {
-		return ""
-	}
-	v, _ := m[k].(string)
-	return strings.TrimSpace(v)
 }
 
 func strHeader(r *http.Request, key string) string {

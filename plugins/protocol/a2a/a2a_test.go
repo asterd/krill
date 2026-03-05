@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/krill/krill/internal/bus"
+	"github.com/krill/krill/internal/plugincfg"
 )
 
 func TestNewRejectsInvalidPath(t *testing.T) {
@@ -170,10 +171,10 @@ func TestRelayReplies(t *testing.T) {
 }
 
 func TestHelpers(t *testing.T) {
-	if got := strVal(nil, "k"); got != "" {
+	if got := plugincfg.String(nil, "k"); got != "" {
 		t.Fatalf("expected empty strVal for nil map, got %q", got)
 	}
-	if got := strVal(map[string]interface{}{"k": " v "}, "k"); got != "v" {
+	if got := plugincfg.String(map[string]interface{}{"k": " v "}, "k"); got != "v" {
 		t.Fatalf("unexpected strVal: %q", got)
 	}
 	req, _ := http.NewRequest(http.MethodGet, "/", nil)

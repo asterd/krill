@@ -20,6 +20,7 @@ import (
 	"github.com/krill/krill/internal/bus"
 	"github.com/krill/krill/internal/core"
 	"github.com/krill/krill/internal/ingress"
+	"github.com/krill/krill/internal/plugincfg"
 	"github.com/krill/krill/internal/telemetry"
 )
 
@@ -44,15 +45,15 @@ type Plugin struct {
 }
 
 func New(cfg map[string]interface{}) (*Plugin, error) {
-	addr, _ := cfg["addr"].(string)
+	addr := plugincfg.String(cfg, "addr")
 	if addr == "" {
 		addr = ":8080"
 	}
 	return &Plugin{
 		addr:    addr,
-		apiKey:  strVal(cfg, "api_key"),
+		apiKey:  plugincfg.String(cfg, "api_key"),
 		waiters: make(map[string]chan *bus.Envelope),
-		norm:    ingress.NewNormalizer(boolVal(cfg, "_strict_v2_validation") || boolVal(cfg, "strict_v2_validation")),
+		norm:    ingress.NewNormalizer(plugincfg.Bool(cfg, "_strict_v2_validation") || plugincfg.Bool(cfg, "strict_v2_validation")),
 	}, nil
 }
 
@@ -264,26 +265,6 @@ func (p *Plugin) auth(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		next(w, r)
-	}
-}
-
-func strVal(m map[string]interface{}, k string) string {
-	v, _ := m[k].(string)
-	return v
-}
-
-func boolVal(m map[string]interface{}, k string) bool {
-	v, ok := m[k]
-	if !ok {
-		return false
-	}
-	switch x := v.(type) {
-	case bool:
-		return x
-	case string:
-		return strings.EqualFold(strings.TrimSpace(x), "true")
-	default:
-		return false
 	}
 }
 

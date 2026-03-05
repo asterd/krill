@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/krill/krill/internal/bus"
+	"github.com/krill/krill/internal/plugincfg"
 )
 
 func TestHandleChat_NonRegressionFlow(t *testing.T) {
@@ -102,10 +103,10 @@ func TestPluginStartStopAndHelpers(t *testing.T) {
 	if p.Name() != "http" {
 		t.Fatalf("unexpected name: %s", p.Name())
 	}
-	if !boolVal(map[string]interface{}{"x": true}, "x") {
+	if !plugincfg.Bool(map[string]interface{}{"x": true}, "x") {
 		t.Fatal("boolVal bool branch failed")
 	}
-	if !boolVal(map[string]interface{}{"x": "true"}, "x") {
+	if !plugincfg.Bool(map[string]interface{}{"x": "true"}, "x") {
 		t.Fatal("boolVal string branch failed")
 	}
 

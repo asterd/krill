@@ -18,6 +18,7 @@ import (
 	"github.com/krill/krill/internal/bus"
 	"github.com/krill/krill/internal/core"
 	"github.com/krill/krill/internal/ingress"
+	"github.com/krill/krill/internal/plugincfg"
 	"github.com/krill/krill/internal/telemetry"
 )
 
@@ -40,19 +41,19 @@ type Plugin struct {
 }
 
 func New(cfg map[string]interface{}) (*Plugin, error) {
-	token, _ := cfg["token"].(string)
+	token := plugincfg.String(cfg, "token")
 	if token == "" {
 		return nil, fmt.Errorf("telegram: token required")
 	}
-	ms := 1000
-	if v, ok := cfg["poll_ms"].(int); ok && v > 0 {
-		ms = v
+	ms := plugincfg.IntDefault(cfg, "poll_ms", 1000)
+	if ms <= 0 {
+		ms = 1000
 	}
 	return &Plugin{
 		token:  token,
 		pollMs: time.Duration(ms) * time.Millisecond,
 		http:   &http.Client{Timeout: 35 * time.Second},
-		norm:   ingress.NewNormalizer(boolVal(cfg, "_strict_v2_validation") || boolVal(cfg, "strict_v2_validation")),
+		norm:   ingress.NewNormalizer(plugincfg.Bool(cfg, "_strict_v2_validation") || plugincfg.Bool(cfg, "strict_v2_validation")),
 	}, nil
 }
 
@@ -219,19 +220,4 @@ func (p *Plugin) send(ctx context.Context, chatID, text string) error {
 		}
 	}
 	return nil
-}
-
-func boolVal(m map[string]interface{}, k string) bool {
-	v, ok := m[k]
-	if !ok {
-		return false
-	}
-	switch x := v.(type) {
-	case bool:
-		return x
-	case string:
-		return strings.EqualFold(strings.TrimSpace(x), "true")
-	default:
-		return false
-	}
 }

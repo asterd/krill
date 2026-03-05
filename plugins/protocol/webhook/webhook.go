@@ -20,6 +20,7 @@ import (
 	"github.com/krill/krill/internal/bus"
 	"github.com/krill/krill/internal/core"
 	"github.com/krill/krill/internal/ingress"
+	"github.com/krill/krill/internal/plugincfg"
 	"github.com/krill/krill/internal/telemetry"
 )
 
@@ -44,13 +45,13 @@ type Plugin struct {
 
 func New(cfg map[string]interface{}) (*Plugin, error) {
 	return &Plugin{
-		addr:        str(cfg, "addr", ":8081"),
-		path:        str(cfg, "path", "/webhook"),
-		secret:      str(cfg, "secret", ""),
-		verifyMode:  str(cfg, "verify_mode", "none"),
-		clientField: str(cfg, "client_field", "user.id"),
-		textField:   str(cfg, "text_field", "text"),
-		norm:        ingress.NewNormalizer(boolVal(cfg, "_strict_v2_validation") || boolVal(cfg, "strict_v2_validation")),
+		addr:        plugincfg.StringDefault(cfg, "addr", ":8081"),
+		path:        plugincfg.StringDefault(cfg, "path", "/webhook"),
+		secret:      plugincfg.StringDefault(cfg, "secret", ""),
+		verifyMode:  plugincfg.StringDefault(cfg, "verify_mode", "none"),
+		clientField: plugincfg.StringDefault(cfg, "client_field", "user.id"),
+		textField:   plugincfg.StringDefault(cfg, "text_field", "text"),
+		norm:        ingress.NewNormalizer(plugincfg.Bool(cfg, "_strict_v2_validation") || plugincfg.Bool(cfg, "strict_v2_validation")),
 	}, nil
 }
 
@@ -185,26 +186,4 @@ func verifyHMAC(body []byte, secret, sig string) bool {
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(body)
 	return hmac.Equal([]byte("sha256="+hex.EncodeToString(mac.Sum(nil))), []byte(sig))
-}
-
-func str(m map[string]interface{}, k, def string) string {
-	if v, ok := m[k].(string); ok && v != "" {
-		return v
-	}
-	return def
-}
-
-func boolVal(m map[string]interface{}, k string) bool {
-	v, ok := m[k]
-	if !ok {
-		return false
-	}
-	switch x := v.(type) {
-	case bool:
-		return x
-	case string:
-		return strings.EqualFold(strings.TrimSpace(x), "true")
-	default:
-		return false
-	}
 }

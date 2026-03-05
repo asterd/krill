@@ -10,6 +10,7 @@ import (
 
 	"github.com/krill/krill/internal/bus"
 	"github.com/krill/krill/internal/core"
+	"github.com/krill/krill/internal/plugincfg"
 	ipubsub "github.com/krill/krill/internal/pubsub"
 	"github.com/krill/krill/internal/schema"
 	"github.com/krill/krill/internal/telemetry"
@@ -308,72 +309,20 @@ func (p *Plugin) publishReplies(ctx context.Context) {
 
 func parseConfig(cfg map[string]interface{}) Config {
 	return Config{
-		BrokerType:   str(cfg, "broker", "nats"),
-		Endpoint:     str(cfg, "endpoint", "local"),
-		TopicIn:      str(cfg, "topic_in", "krill.in"),
-		TopicOut:     str(cfg, "topic_out", "krill.out"),
-		TopicDLQ:     str(cfg, "topic_dlq", "krill.dlq"),
-		Group:        str(cfg, "group", "krill"),
-		DedupTTL:     time.Duration(intVal(cfg, "dedup_ttl_ms", 300000)) * time.Millisecond,
-		AckTimeout:   time.Duration(intVal(cfg, "ack_timeout_ms", 5000)) * time.Millisecond,
-		StrictSchema: boolVal(cfg, "_strict_v2_validation") || boolVal(cfg, "strict_v2_validation"),
+		BrokerType:   plugincfg.StringDefault(cfg, "broker", "nats"),
+		Endpoint:     plugincfg.StringDefault(cfg, "endpoint", "local"),
+		TopicIn:      plugincfg.StringDefault(cfg, "topic_in", "krill.in"),
+		TopicOut:     plugincfg.StringDefault(cfg, "topic_out", "krill.out"),
+		TopicDLQ:     plugincfg.StringDefault(cfg, "topic_dlq", "krill.dlq"),
+		Group:        plugincfg.StringDefault(cfg, "group", "krill"),
+		DedupTTL:     time.Duration(plugincfg.IntDefault(cfg, "dedup_ttl_ms", 300000)) * time.Millisecond,
+		AckTimeout:   time.Duration(plugincfg.IntDefault(cfg, "ack_timeout_ms", 5000)) * time.Millisecond,
+		StrictSchema: plugincfg.Bool(cfg, "_strict_v2_validation") || plugincfg.Bool(cfg, "strict_v2_validation"),
 		Retry: ipubsub.RetryPolicy{
-			MaxRetries: intVal(cfg, "retry_max", 3),
-			Backoff:    time.Duration(intVal(cfg, "retry_backoff_ms", 100)) * time.Millisecond,
-			MaxBackoff: time.Duration(intVal(cfg, "retry_backoff_max_ms", 2000)) * time.Millisecond,
-			DLQTopic:   str(cfg, "topic_dlq", "krill.dlq"),
+			MaxRetries: plugincfg.IntDefault(cfg, "retry_max", 3),
+			Backoff:    time.Duration(plugincfg.IntDefault(cfg, "retry_backoff_ms", 100)) * time.Millisecond,
+			MaxBackoff: time.Duration(plugincfg.IntDefault(cfg, "retry_backoff_max_ms", 2000)) * time.Millisecond,
+			DLQTopic:   plugincfg.StringDefault(cfg, "topic_dlq", "krill.dlq"),
 		},
-	}
-}
-
-func str(m map[string]interface{}, k, def string) string {
-	if m == nil {
-		return def
-	}
-	if v, ok := m[k].(string); ok && strings.TrimSpace(v) != "" {
-		return v
-	}
-	return def
-}
-
-func intVal(m map[string]interface{}, k string, def int) int {
-	if m == nil {
-		return def
-	}
-	v, ok := m[k]
-	if !ok {
-		return def
-	}
-	switch x := v.(type) {
-	case int:
-		return x
-	case int64:
-		return int(x)
-	case float64:
-		return int(x)
-	case string:
-		var parsed int
-		if _, err := fmt.Sscanf(strings.TrimSpace(x), "%d", &parsed); err == nil {
-			return parsed
-		}
-	}
-	return def
-}
-
-func boolVal(m map[string]interface{}, k string) bool {
-	if m == nil {
-		return false
-	}
-	v, ok := m[k]
-	if !ok {
-		return false
-	}
-	switch x := v.(type) {
-	case bool:
-		return x
-	case string:
-		return strings.EqualFold(strings.TrimSpace(x), "true")
-	default:
-		return false
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/krill/krill/internal/bus"
+	"github.com/krill/krill/internal/plugincfg"
 )
 
 func TestHandle_NonRegressionFlow(t *testing.T) {
@@ -133,16 +134,16 @@ func TestHMACAndStartStopHelpers(t *testing.T) {
 	if verifyHMAC(body, secret, "sha256=deadbeef") {
 		t.Fatal("verifyHMAC expected false on wrong signature")
 	}
-	if !boolVal(map[string]interface{}{"x": "true"}, "x") {
+	if !plugincfg.Bool(map[string]interface{}{"x": "true"}, "x") {
 		t.Fatal("boolVal expected true")
 	}
 	if got := dotGet(map[string]interface{}{"a": map[string]interface{}{"b": "c"}}, "a.b"); got != "c" {
 		t.Fatalf("dotGet mismatch: %s", got)
 	}
-	if got := str(map[string]interface{}{}, "missing", "d"); got != "d" {
+	if got := plugincfg.StringDefault(map[string]interface{}{}, "missing", "d"); got != "d" {
 		t.Fatalf("str fallback mismatch: %s", got)
 	}
-	if boolVal(map[string]interface{}{"x": "false"}, "x") {
+	if plugincfg.Bool(map[string]interface{}{"x": "false"}, "x") {
 		t.Fatal("boolVal false branch expected false")
 	}
 	if got := dotGet(map[string]interface{}{"a": "x"}, "a.b"); got != "" {

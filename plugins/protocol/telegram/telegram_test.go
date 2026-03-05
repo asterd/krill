@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/krill/krill/internal/bus"
+	"github.com/krill/krill/internal/plugincfg"
 )
 
 type telegramRT struct {
@@ -159,10 +160,10 @@ func TestGetUpdatesSendAndHelpers(t *testing.T) {
 	if err := p.send(context.Background(), "42", "hello"); err != nil {
 		t.Fatal(err)
 	}
-	if !boolVal(map[string]interface{}{"v": "true"}, "v") {
+	if !plugincfg.Bool(map[string]interface{}{"v": "true"}, "v") {
 		t.Fatal("boolVal should parse true string")
 	}
-	if boolVal(map[string]interface{}{"v": "false"}, "v") {
+	if plugincfg.Bool(map[string]interface{}{"v": "false"}, "v") {
 		t.Fatal("boolVal false branch should be false")
 	}
 }

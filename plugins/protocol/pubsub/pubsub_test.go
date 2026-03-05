@@ -11,6 +11,7 @@ import (
 	"github.com/krill/krill/internal/bus"
 	"github.com/krill/krill/internal/llm"
 	"github.com/krill/krill/internal/memory"
+	"github.com/krill/krill/internal/plugincfg"
 	ipubsub "github.com/krill/krill/internal/pubsub"
 	"github.com/krill/krill/internal/schema"
 )
@@ -423,7 +424,7 @@ func TestParseConfigAndHelpers(t *testing.T) {
 	if !got.StrictSchema {
 		t.Fatal("expected strict schema true")
 	}
-	if str(nil, "x", "d") != "d" || intVal(nil, "x", 9) != 9 || boolVal(nil, "x") {
+	if plugincfg.StringDefault(nil, "x", "d") != "d" || plugincfg.IntDefault(nil, "x", 9) != 9 || plugincfg.Bool(nil, "x") {
 		t.Fatal("helper defaults mismatch")
 	}
 }
