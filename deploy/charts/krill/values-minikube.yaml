@@ -3,3 +3,8 @@ service:
 
 image:
   pullPolicy: Never
+
+pubsub:
+  profile: redis_streams
+  broker: redis_streams
+  endpoint: redis://redis:6379

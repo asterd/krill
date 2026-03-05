@@ -27,6 +27,8 @@ type CoreConfig struct {
 	SkillTimeoutMs int    `yaml:"skill_timeout_ms"` // default 30000
 	WasmFuel       uint64 `yaml:"wasm_fuel"`        // default 1_000_000_000
 	MemoryWindow   int    `yaml:"memory_window"`    // max messages kept in RAM per thread, default 100
+	MemoryBackend  string `yaml:"memory_backend"`   // "sqlite" | "file" | "ram" (default sqlite)
+	MemoryPath     string `yaml:"memory_path"`      // used when memory_backend=sqlite|file
 	LogFormat      string `yaml:"log_format"`       // "json" | "text" (default json)
 	// LogGeneratedCode controls whether code_exec logs generated source code.
 	LogGeneratedCode bool `yaml:"log_generated_code"` // default false
@@ -161,6 +163,8 @@ func defaults() *Root {
 			SkillTimeoutMs:             30000,
 			WasmFuel:                   1_000_000_000,
 			MemoryWindow:               100,
+			MemoryBackend:              "sqlite",
+			MemoryPath:                 "./.krill/memory.db",
 			LogFormat:                  "json",
 			LogGeneratedCode:           false,
 			LogGeneratedCodeMaxBytes:   4000,
@@ -179,6 +183,9 @@ func (c *Root) applyCompat() {
 func (c *Root) validate() error {
 	if !slices.Contains([]string{"exec", "wasm", "noop"}, strings.ToLower(strings.TrimSpace(c.Core.SandboxType))) {
 		return fmt.Errorf("core.sandbox_type must be one of exec|wasm|noop")
+	}
+	if !slices.Contains([]string{"sqlite", "file", "ram"}, strings.ToLower(strings.TrimSpace(c.Core.MemoryBackend))) {
+		return fmt.Errorf("core.memory_backend must be one of sqlite|file|ram")
 	}
 	seen := make(map[string]struct{}, len(c.Protocols))
 	for _, p := range c.Protocols {
@@ -201,6 +208,24 @@ func validateProtocol(name string, p PluginRef) error {
 	switch name {
 	case "http":
 		return nil
+	case "pubsub":
+		if !p.Enabled {
+			return nil
+		}
+		broker, _ := p.Config["broker"].(string)
+		broker = strings.ToLower(strings.TrimSpace(broker))
+		if broker == "" {
+			broker = "nats"
+		}
+		if !slices.Contains([]string{"nats", "redis_streams", "solace"}, broker) {
+			return fmt.Errorf("protocol %q requires config.broker in nats|redis_streams|solace", name)
+		}
+		topicIn, _ := p.Config["topic_in"].(string)
+		topicOut, _ := p.Config["topic_out"].(string)
+		if strings.TrimSpace(topicIn) == "" || strings.TrimSpace(topicOut) == "" {
+			return fmt.Errorf("protocol %q requires config.topic_in and config.topic_out when enabled", name)
+		}
+		return nil
 	case "telegram":
 		if !p.Enabled {
 			return nil
@@ -220,6 +245,6 @@ func validateProtocol(name string, p PluginRef) error {
 		}
 		return nil
 	default:
-		return fmt.Errorf("protocol %q is not in compatibility matrix (http|telegram|webhook)", name)
+		return fmt.Errorf("protocol %q is not in compatibility matrix (http|pubsub|telegram|webhook)", name)
 	}
 }

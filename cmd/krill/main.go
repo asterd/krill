@@ -16,6 +16,7 @@ import (
 
 	// ── Protocol plugins (self-register via init()) ──────────────────────────
 	_ "github.com/krill/krill/plugins/protocol/http"
+	_ "github.com/krill/krill/plugins/protocol/pubsub"
 	_ "github.com/krill/krill/plugins/protocol/telegram"
 	_ "github.com/krill/krill/plugins/protocol/webhook"
 	// _ "github.com/krill/krill/plugins/protocol/mcp"     // uncomment to enable

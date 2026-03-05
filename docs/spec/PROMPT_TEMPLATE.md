@@ -46,9 +46,9 @@ Implementa la milestone M4 usando come fonte unica:
 
 
 
-Implementa la milestone M0 usando come fonte unica:
+Implementa la milestone M1 usando come fonte unica:
 - docs/spec/SPEC.md
-- docs/spec/milestones/M0.md
+- docs/spec/milestones/M1.md
 
 Obiettivi operativi:
 1) Rispetta rigidamente lo scope della milestone.

@@ -17,12 +17,15 @@ func TestUpDownReset_SmokeWithMockDocker(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	run := func(script string, sandbox bool) {
+	run := func(script string, sandbox bool, pubsub string) {
 		t.Helper()
 		cmd := exec.Command(filepath.Join(root, "deploy/scripts/dev", script))
 		cmd.Env = append(os.Environ(), "DOCKER_BIN="+mockDocker)
 		if sandbox {
 			cmd.Env = append(cmd.Env, "KRILL_ENABLE_DOCKER_SANDBOX=1")
+		}
+		if pubsub != "" {
+			cmd.Env = append(cmd.Env, "KRILL_PUBSUB_PROFILE="+pubsub)
 		}
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -30,9 +33,9 @@ func TestUpDownReset_SmokeWithMockDocker(t *testing.T) {
 		}
 	}
 
-	run("up.sh", true)
-	run("down.sh", true)
-	run("reset.sh", true)
+	run("up.sh", true, "nats")
+	run("down.sh", true, "nats")
+	run("reset.sh", true, "redis")
 
 	data, err := os.ReadFile(logPath)
 	if err != nil {
@@ -41,10 +44,13 @@ func TestUpDownReset_SmokeWithMockDocker(t *testing.T) {
 	got := string(data)
 	for _, must := range []string{
 		"compose -f " + filepath.Join(root, "deploy/compose/docker-compose.yml"),
-		"docker-compose.sandbox.yml --profile docker-sandbox up -d --build",
-		"docker-compose.sandbox.yml --profile docker-sandbox down --remove-orphans",
-		"docker-compose.sandbox.yml --profile docker-sandbox down -v --remove-orphans",
-		"docker-compose.sandbox.yml --profile docker-sandbox ps",
+		"docker-compose.sandbox.yml --profile docker-sandbox",
+		"docker-compose.pubsub.yml --profile pubsub-nats",
+		"docker-compose.pubsub.yml --profile pubsub-redis",
+		"up -d --build",
+		"down --remove-orphans",
+		"down -v --remove-orphans",
+		" ps",
 	} {
 		if !strings.Contains(got, must) {
 			t.Fatalf("expected %q in docker calls, got:\n%s", must, got)

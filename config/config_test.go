@@ -47,13 +47,61 @@ llm:
       model: x
       max_tokens: 1
 protocols:
-  - name: pubsub
+  - name: ghost
     enabled: true
     config: {}
 `
 	path := writeTempConfig(t, cfg)
 	if _, err := Load(path); err == nil {
 		t.Fatal("expected validation error for unsupported protocol")
+	}
+}
+
+func TestLoad_AcceptsPubsubProtocol(t *testing.T) {
+	cfg := `
+core:
+  sandbox_type: exec
+llm:
+  default: gpt4o
+  backends:
+    - name: gpt4o
+      base_url: https://example.test
+      api_key: test
+      model: x
+      max_tokens: 1
+protocols:
+  - name: pubsub
+    enabled: true
+    config:
+      broker: nats
+      topic_in: krill.in
+      topic_out: krill.out
+`
+	if _, err := Load(writeTempConfig(t, cfg)); err != nil {
+		t.Fatalf("expected valid pubsub config, got: %v", err)
+	}
+}
+
+func TestLoad_RejectPubsubMissingTopics(t *testing.T) {
+	cfg := `
+core:
+  sandbox_type: exec
+llm:
+  default: gpt4o
+  backends:
+    - name: gpt4o
+      base_url: https://example.test
+      api_key: test
+      model: x
+      max_tokens: 1
+protocols:
+  - name: pubsub
+    enabled: true
+    config:
+      broker: nats
+`
+	if _, err := Load(writeTempConfig(t, cfg)); err == nil {
+		t.Fatal("expected pubsub topic validation error")
 	}
 }
 
@@ -156,6 +204,87 @@ protocols:
 	path := writeTempConfig(t, cfg)
 	if _, err := Load(path); err == nil {
 		t.Fatal("expected sandbox validation error")
+	}
+}
+
+func TestLoad_RejectInvalidMemoryBackend(t *testing.T) {
+	cfg := `
+core:
+  sandbox_type: exec
+  memory_backend: bad
+llm:
+  default: gpt4o
+  backends:
+    - name: gpt4o
+      base_url: https://example.test
+      api_key: test
+      model: x
+      max_tokens: 1
+protocols:
+  - name: http
+    enabled: true
+    config: {}
+`
+	if _, err := Load(writeTempConfig(t, cfg)); err == nil {
+		t.Fatal("expected memory backend validation error")
+	}
+}
+
+func TestLoad_NonRegression_LegacyProtocolsStillValid(t *testing.T) {
+	cfg := `
+core:
+  sandbox_type: exec
+llm:
+  default: gpt4o
+  backends:
+    - name: gpt4o
+      base_url: https://example.test
+      api_key: test
+      model: x
+      max_tokens: 1
+protocols:
+  - name: http
+    enabled: true
+    config:
+      addr: ":8080"
+  - name: telegram
+    enabled: true
+    config:
+      token: token
+      poll_ms: 1000
+  - name: webhook
+    enabled: true
+    config:
+      path: /webhook
+`
+	if _, err := Load(writeTempConfig(t, cfg)); err != nil {
+		t.Fatalf("legacy protocols should remain valid: %v", err)
+	}
+}
+
+func TestLoad_DefaultsMemoryBackendSQLite(t *testing.T) {
+	cfg := `
+core:
+  sandbox_type: exec
+llm:
+  default: gpt4o
+  backends:
+    - name: gpt4o
+      base_url: https://example.test
+      api_key: test
+      model: x
+      max_tokens: 1
+protocols:
+  - name: http
+    enabled: true
+    config: {}
+`
+	got, err := Load(writeTempConfig(t, cfg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Core.MemoryBackend != "sqlite" {
+		t.Fatalf("expected default memory_backend=sqlite, got %q", got.Core.MemoryBackend)
 	}
 }
 

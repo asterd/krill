@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  nats:
+    image: nats:2.11-alpine
+    profiles: ["pubsub-nats"]
+    ports:
+      - "4222:4222"
+
+  redis:
+    image: redis:7-alpine
+    profiles: ["pubsub-redis"]
+    ports:
+      - "6379:6379"
+
+  # Solace container is intentionally scaffolded only in M1.
+  # Use a proper enterprise image and licensing in target env before enabling.

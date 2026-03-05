@@ -19,6 +19,8 @@ config:
       sandbox_type: exec
       skill_timeout_ms: 30000
       memory_window: 100
+      memory_backend: sqlite
+      memory_path: /var/lib/krill/memory.db
       log_format: json
       strict_envelope_v2_validation: false
     llm:
@@ -48,6 +50,20 @@ config:
           verify_mode: hmac
           client_field: user.id
           text_field: text
+      - name: pubsub
+        enabled: false
+        config:
+          broker: nats
+          endpoint: nats://nats:4222
+          topic_in: krill.in
+          topic_out: krill.out
+          topic_dlq: krill.dlq
+          group: krill
+          dedup_ttl_ms: 300000
+          ack_timeout_ms: 5000
+          retry_max: 3
+          retry_backoff_ms: 100
+          retry_backoff_max_ms: 2000
     agents:
       - name: default
         description: General-purpose assistant

@@ -52,8 +52,11 @@ func New(cfg *config.Root, log *slog.Logger) (*Engine, error) {
 	builtins.Register(skillReg, cfg.Core)
 	log.Info("skills loaded", "total", skillReg.Count())
 
-	// 5. Memory store (RAM; swap for persistent backend)
-	mem := memory.NewRAM()
+	// 5. Memory store (sqlite default, ram/file optional)
+	mem, err := memory.NewStore(cfg.Core.MemoryBackend, cfg.Core.MemoryPath)
+	if err != nil {
+		return nil, fmt.Errorf("memory: %w", err)
+	}
 
 	// 6. Orchestrator
 	orch, err := orchestrator.New(cfg, b, skillReg, mem, llmPool, log)

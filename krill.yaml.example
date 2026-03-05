@@ -7,6 +7,8 @@ core:
   sandbox_type: exec
   skill_timeout_ms: 30000
   memory_window: 100
+  memory_backend: sqlite          # sqlite | file | ram
+  memory_path: ./.krill/memory.db
   log_format: json                 # json | text
   log_generated_code: false        # when true, code_exec logs generated source
   log_generated_code_max_bytes: 4000
@@ -49,6 +51,21 @@ protocols:
       verify_mode: hmac     # none | hmac | slack | discord
       client_field: user.id
       text_field: text
+
+  - name: pubsub
+    enabled: false
+    config:
+      broker: nats                 # nats | redis_streams | solace
+      endpoint: nats://nats:4222   # scaffold for future external adapters
+      topic_in: krill.in
+      topic_out: krill.out
+      topic_dlq: krill.dlq
+      group: krill
+      dedup_ttl_ms: 300000
+      ack_timeout_ms: 5000
+      retry_max: 3
+      retry_backoff_ms: 100
+      retry_backoff_max_ms: 2000
 
 agents:
   - name: default

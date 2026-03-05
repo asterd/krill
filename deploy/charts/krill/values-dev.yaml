@@ -1,2 +1,7 @@
 service:
   type: NodePort
+
+pubsub:
+  profile: nats
+  broker: nats
+  endpoint: nats://nats:4222
