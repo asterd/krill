@@ -1,0 +1,60 @@
+{
+  "folders": [
+    { "path": "." }
+  ],
+  "settings": {
+    "go.toolsManagement.autoUpdate": true,
+    "go.useLanguageServer": true,
+    "go.lintTool": "staticcheck",
+    "go.lintOnSave": "package",
+    "go.testFlags": ["-race", "-count=1"],
+    "go.coverOnSave": false,
+    "editor.formatOnSave": true,
+    "[go]": {
+      "editor.defaultFormatter": "golang.go",
+      "editor.codeActionsOnSave": {
+        "source.organizeImports": "explicit"
+      }
+    },
+    "gopls": {
+      "ui.semanticTokens": true,
+      "formatting.gofumpt": false
+    },
+    "files.exclude": {
+      "**/.git": true,
+      "**/dist": false
+    }
+  },
+  "extensions": {
+    "recommendations": [
+      "golang.go",
+      "redhat.vscode-yaml",
+      "ms-vscode.makefile-tools",
+      "eamodio.gitlens"
+    ]
+  },
+  "launch": {
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "Run Krill",
+        "type": "go",
+        "request": "launch",
+        "mode": "auto",
+        "program": "${workspaceFolder}/cmd/krill",
+        "args": ["-config", "${workspaceFolder}/krill.yaml"],
+        "env": {
+          "OPENAI_API_KEY": "${env:OPENAI_API_KEY}"
+        }
+      },
+      {
+        "name": "Test All",
+        "type": "go",
+        "request": "launch",
+        "mode": "test",
+        "program": "${workspaceFolder}/...",
+        "args": ["-race", "-v", "-count=1"]
+      }
+    ]
+  }
+}

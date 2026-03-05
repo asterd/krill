@@ -1,0 +1,66 @@
+# krill.yaml.example — copy to krill.yaml and fill in your values
+# $VAR references are expanded from environment variables at startup.
+
+core:
+  bus_buffer: 512
+  max_clients: 2000
+  sandbox_type: exec
+  skill_timeout_ms: 30000
+  memory_window: 100
+  log_format: json                 # json | text
+  log_generated_code: false        # when true, code_exec logs generated source
+  log_generated_code_max_bytes: 4000
+
+llm:
+  default: gpt4o
+  backends:
+    - name: gpt4o
+      base_url: https://api.openai.com
+      api_key: $OPENAI_API_KEY
+      model: gpt-4o
+      max_tokens: 4096
+
+    # Uncomment for local LLM (Ollama, LM Studio, vLLM)
+    # - name: local
+    #   base_url: http://localhost:11434
+    #   api_key: none
+    #   model: qwen2.5:14b
+    #   max_tokens: 8192
+
+protocols:
+  - name: http
+    enabled: true
+    config:
+      addr: ":8080"
+      api_key: ""        # leave empty to disable auth, or set $HTTP_API_KEY
+
+  - name: telegram
+    enabled: false
+    config:
+      token: $TELEGRAM_BOT_TOKEN
+      poll_ms: 1000
+
+  - name: webhook
+    enabled: false
+    config:
+      addr: ":8081"
+      path: "/webhook"
+      secret: $WEBHOOK_SECRET
+      verify_mode: hmac     # none | hmac | slack | discord
+      client_field: user.id
+      text_field: text
+
+agents:
+  - name: default
+    description: General-purpose assistant
+    llm: gpt4o
+    max_turns: 20
+    eager_skills:
+      - http_fetch
+      - json_format
+      - code_exec
+    system_prompt: |
+      You are a concise, helpful assistant.
+      Use tools when they help give a better answer. Be brief.
+
+# skills: []   # add custom exec/wasm skills here

@@ -1,0 +1,5 @@
+dist/
+*.env
+.env
+krill.yaml
+skills/*.wasm
