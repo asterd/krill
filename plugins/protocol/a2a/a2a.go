@@ -24,6 +24,7 @@ func init() {
 	})
 }
 
+// Plugin is the A2A ingress protocol plugin.
 type Plugin struct {
 	addr string
 	path string
@@ -32,6 +33,7 @@ type Plugin struct {
 	log  *slog.Logger
 }
 
+// New constructs the A2A protocol plugin from raw config.
 func New(cfg map[string]interface{}) (*Plugin, error) {
 	p := plugincfg.String(cfg, "path")
 	if p == "" {

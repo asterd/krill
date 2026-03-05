@@ -47,12 +47,14 @@ type Envelope struct {
 	CreatedAt      time.Time         `json:"created_at"`
 }
 
+// Attachment represents binary or URL payloads attached to an envelope.
 type Attachment struct {
 	Type string `json:"type"` // "image_url" | "file"
 	URL  string `json:"url,omitempty"`
 	Data []byte `json:"data,omitempty"`
 }
 
+// ToolCall is the tool invocation payload carried by envelopes.
 type ToolCall struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
@@ -67,6 +69,7 @@ var (
 	replyPrefix   = "__reply__"
 )
 
+// SetReplyPrefix overrides the reply channel prefix used to derive protocol reply keys.
 func SetReplyPrefix(prefix string) {
 	replyPrefixMu.Lock()
 	defer replyPrefixMu.Unlock()
@@ -105,6 +108,7 @@ type localBus struct {
 	chans   map[string]chan *Envelope
 }
 
+// NewLocal creates an in-process bus with bounded channels per key.
 func NewLocal(bufSize int) Bus {
 	return &localBus{bufSize: bufSize, chans: make(map[string]chan *Envelope)}
 }

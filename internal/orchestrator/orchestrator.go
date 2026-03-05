@@ -47,6 +47,7 @@ type Orch struct {
 	wfStates map[string]WorkflowState // workflow request state by envelope id
 }
 
+// New constructs an orchestrator with the configured runtime dependencies.
 func New(
 	cfg *config.Root,
 	b bus.Bus,

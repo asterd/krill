@@ -44,6 +44,7 @@ type Plugin struct {
 	norm    *ingress.Normalizer
 }
 
+// New constructs the HTTP protocol plugin from raw config.
 func New(cfg map[string]interface{}) (*Plugin, error) {
 	addr := plugincfg.String(cfg, "addr")
 	if addr == "" {

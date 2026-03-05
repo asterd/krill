@@ -9,10 +9,12 @@ import (
 	"github.com/krill/krill/internal/telemetry"
 )
 
+// Normalizer validates and upgrades inbound envelopes into the internal v2 form.
 type Normalizer struct {
 	opts schema.NormalizeOptions
 }
 
+// NewNormalizer creates a normalizer that upgrades inbound envelopes to the v2 contract.
 func NewNormalizer(strictV2Validation bool) *Normalizer {
 	return &Normalizer{
 		opts: schema.NormalizeOptions{

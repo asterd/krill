@@ -12,6 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Root is the top-level runtime configuration document.
 type Root struct {
 	Core       CoreConfig        `yaml:"core"`
 	OTEL       OTELConfig        `yaml:"otel"`
@@ -25,6 +26,7 @@ type Root struct {
 	Skills     []SkillConfig     `yaml:"skills"`
 }
 
+// OTELConfig configures tracing and metrics export behavior.
 type OTELConfig struct {
 	Profile         string  `yaml:"profile"`           // off | minimal | standard | debug
 	Exporter        string  `yaml:"exporter"`          // none | log | otlp_http
@@ -35,6 +37,7 @@ type OTELConfig struct {
 	ConsoleDebug    bool    `yaml:"console_debug"`     // print text span-end logs for debug
 }
 
+// CoreConfig controls transport-independent runtime settings.
 type CoreConfig struct {
 	BusBuffer      int    `yaml:"bus_buffer"`       // default 256
 	MaxClients     int    `yaml:"max_clients"`      // default 1000 — semaphore for concurrent loops
@@ -58,13 +61,14 @@ type CoreConfig struct {
 	StrictV2Validation bool `yaml:"strict_v2_validation"`
 }
 
+// PluginRef declares an ingress protocol plugin and its raw config map.
 type PluginRef struct {
 	Name    string                 `yaml:"name"`
 	Enabled bool                   `yaml:"enabled"`
 	Config  map[string]interface{} `yaml:"config"`
 }
 
-// AgentConfig — a named agent that the orchestrator can assign to a client.
+// AgentConfig is a named agent that the orchestrator can assign to a client.
 type AgentConfig struct {
 	Name         string `yaml:"name"`
 	Description  string `yaml:"description"`
@@ -77,6 +81,7 @@ type AgentConfig struct {
 	MatchProtocol string `yaml:"match_protocol"`
 }
 
+// WorkflowConfig defines runtime orchestration behavior for a workflow id.
 type WorkflowConfig struct {
 	ID                string               `yaml:"id"`
 	OrchestrationMode string               `yaml:"orchestration_mode"` // single | cooperative
@@ -84,6 +89,7 @@ type WorkflowConfig struct {
 	Policy            WorkflowPolicyConfig `yaml:"policy"`
 }
 
+// WorkflowPolicyConfig defines budgets and handoff limits for a workflow.
 type WorkflowPolicyConfig struct {
 	MaxHops       int      `yaml:"max_hops"`
 	AllowedPairs  []string `yaml:"allowed_pairs"` // "origin->target"
@@ -91,6 +97,7 @@ type WorkflowPolicyConfig struct {
 	TokenBudget   int      `yaml:"token_budget"`
 }
 
+// OrgSchemaConfig declares a cooperative topology schema.
 type OrgSchemaConfig struct {
 	SchemaID        string                    `yaml:"schema_id"`
 	Version         string                    `yaml:"version"`
@@ -99,6 +106,7 @@ type OrgSchemaConfig struct {
 	EscalationRules []OrgEscalationRuleConfig `yaml:"escalation_rules"`
 }
 
+// OrgRoleConfig binds an org schema role to an agent.
 type OrgRoleConfig struct {
 	Name             string   `yaml:"name"`
 	Kind             string   `yaml:"kind"` // router | specialist | synthesizer | custom
@@ -106,18 +114,20 @@ type OrgRoleConfig struct {
 	Responsibilities []string `yaml:"responsibilities"`
 }
 
+// OrgHandoffRuleConfig defines allowed role-to-role handoffs.
 type OrgHandoffRuleConfig struct {
 	From string   `yaml:"from"`
 	To   []string `yaml:"to"`
 }
 
+// OrgEscalationRuleConfig defines escalation routes inside an org schema.
 type OrgEscalationRuleConfig struct {
 	From string `yaml:"from"`
 	To   string `yaml:"to"`
 	When string `yaml:"when"`
 }
 
-// SkillConfig — one entry in the skill marketplace.
+// SkillConfig is one entry in the skill marketplace.
 type SkillConfig struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
@@ -131,11 +141,13 @@ type SkillConfig struct {
 	Tags []string `yaml:"tags"`
 }
 
+// LLMPool configures named LLM backends and the default selection.
 type LLMPool struct {
 	Default  string      `yaml:"default"`
 	Backends []LLMConfig `yaml:"backends"`
 }
 
+// SessionConfig configures long-running session persistence behavior.
 type SessionConfig struct {
 	Enabled                  bool   `yaml:"enabled"`
 	Path                     string `yaml:"path"`
@@ -146,12 +158,14 @@ type SessionConfig struct {
 	DefaultMergeConflictMode string `yaml:"default_merge_conflict_mode"`
 }
 
+// SchedulerConfig configures cron scheduling and its declared schedules.
 type SchedulerConfig struct {
 	Enabled   bool             `yaml:"enabled"`
 	TickMs    int              `yaml:"tick_ms"`
 	Schedules []ScheduleConfig `yaml:"schedules"`
 }
 
+// ScheduleConfig defines a single cron-triggered execution target.
 type ScheduleConfig struct {
 	ID                string `yaml:"schedule_id"`
 	CronExpr          string `yaml:"cron_expr"`
@@ -169,6 +183,7 @@ type ScheduleConfig struct {
 	ThreadID          string `yaml:"thread_id"`
 }
 
+// LLMConfig configures one concrete LLM backend.
 type LLMConfig struct {
 	Name      string `yaml:"name"`
 	BaseURL   string `yaml:"base_url"`
@@ -177,6 +192,7 @@ type LLMConfig struct {
 	MaxTokens int    `yaml:"max_tokens"`
 }
 
+// Load reads, defaults, expands, and validates a YAML config file.
 func Load(path string) (*Root, error) {
 	// Optional .env fallback: load values only if not already present in the process env.
 	_ = loadDotEnv(filepath.Join(filepath.Dir(path), ".env"))

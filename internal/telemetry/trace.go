@@ -30,6 +30,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// Profile is the named telemetry overhead profile.
 type Profile string
 
 const (
@@ -39,6 +40,7 @@ const (
 	ProfileDebug    Profile = "debug"
 )
 
+// Config configures telemetry exporters, sampling, and service identity.
 type Config struct {
 	Profile         string
 	Exporter        string
@@ -70,6 +72,7 @@ type gaugeState struct {
 	vals sync.Map // key -> int64
 }
 
+// Span is the lightweight tracing handle returned by StartSpan.
 type Span struct {
 	rt        *runtimeState
 	log       *slog.Logger
@@ -96,6 +99,7 @@ func defaultConfig() Config {
 	}
 }
 
+// Configure initializes telemetry for the current process.
 func Configure(cfg Config, log *slog.Logger) {
 	stopCurrent()
 	cfg = normalizeConfig(cfg)
@@ -179,6 +183,7 @@ func Configure(cfg Config, log *slog.Logger) {
 	current.Store(rt)
 }
 
+// Shutdown flushes and closes telemetry providers.
 func Shutdown(ctx context.Context) {
 	rt := current.Swap(nil)
 	if rt == nil {
@@ -237,14 +242,17 @@ func normalizeConfig(cfg Config) Config {
 	return cfg
 }
 
+// NewTraceID returns a new trace identifier.
 func NewTraceID() string {
 	return randomHex(16)
 }
 
+// NewSpanID returns a new span identifier.
 func NewSpanID() string {
 	return randomHex(8)
 }
 
+// StartSpan starts a trace span and records optional structured attributes.
 func StartSpan(log *slog.Logger, traceID, parentSpanID, name string, attrs ...any) *Span {
 	rt := current.Load()
 	if rt == nil || rt.profile == ProfileOff {
@@ -340,6 +348,7 @@ func (s *Span) SpanID() string {
 	return s.spanID
 }
 
+// SnapshotMetrics returns the in-memory metric snapshot used by tests and debug paths.
 func SnapshotMetrics() []metricSample {
 	rt := current.Load()
 	if rt == nil {
@@ -348,6 +357,7 @@ func SnapshotMetrics() []metricSample {
 	return rt.knownMetrics.snapshot()
 }
 
+// ResetForTests resets global telemetry state between tests.
 func ResetForTests() {
 	Shutdown(context.Background())
 	Configure(defaultConfig(), slog.New(slog.NewTextHandler(io.Discard, nil)))

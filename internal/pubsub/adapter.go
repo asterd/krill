@@ -8,6 +8,7 @@ import (
 
 var ErrNotImplemented = errors.New("pubsub adapter not implemented")
 
+// RetryPolicy defines retry and DLQ behavior for PubSub messages.
 type RetryPolicy struct {
 	MaxRetries int
 	Backoff    time.Duration
@@ -15,6 +16,7 @@ type RetryPolicy struct {
 	DLQTopic   string
 }
 
+// Message is the transport-level unit exchanged with PubSub adapters.
 type Message struct {
 	ID       string
 	Topic    string
@@ -23,6 +25,7 @@ type Message struct {
 	Attempts int
 }
 
+// Adapter is the common interface implemented by PubSub backends.
 type Adapter interface {
 	Connect(ctx context.Context) error
 	Subscribe(ctx context.Context, topic, group string) (<-chan *Message, error)
@@ -32,11 +35,13 @@ type Adapter interface {
 	Close() error
 }
 
+// Config describes how to connect to a PubSub backend.
 type Config struct {
 	BrokerType string
 	Endpoint   string
 }
 
+// NewAdapter selects a PubSub adapter implementation from config.
 func NewAdapter(cfg Config) Adapter {
 	switch cfg.BrokerType {
 	case "nats":

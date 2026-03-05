@@ -16,6 +16,7 @@ import (
 	"github.com/krill/krill/internal/telemetry"
 )
 
+// Mode identifies whether a session is ephemeral or persistent.
 type Mode string
 
 const (
@@ -23,6 +24,7 @@ const (
 	ModePersistent Mode = "persistent"
 )
 
+// Status is the lifecycle state of a session.
 type Status string
 
 const (
@@ -30,6 +32,7 @@ const (
 	StatusClosed Status = "closed"
 )
 
+// EventType identifies the kind of audit event stored in a session timeline.
 type EventType string
 
 const (
@@ -44,6 +47,7 @@ const (
 	EventMerge      EventType = "merge"
 )
 
+// MergePolicy controls how branch conflicts are handled during merge.
 type MergePolicy string
 
 const (
@@ -52,18 +56,21 @@ const (
 	MergeManual MergePolicy = "manual"
 )
 
+// Provenance records who or what produced a session mutation.
 type Provenance struct {
 	Actor  string            `json:"actor,omitempty"`
 	Source string            `json:"source,omitempty"`
 	Meta   map[string]string `json:"meta,omitempty"`
 }
 
+// HistoryPolicy configures retention and summarization behavior for a session.
 type HistoryPolicy struct {
 	RetentionMaxMessages    int `json:"retention_max_messages"`
 	SummarizationThreshold  int `json:"summarization_threshold"`
 	SummarizationKeepRecent int `json:"summarization_keep_recent"`
 }
 
+// Event is an auditable lifecycle or context mutation in a session timeline.
 type Event struct {
 	Seq         int64             `json:"seq"`
 	Type        EventType         `json:"type"`
@@ -78,6 +85,7 @@ type Event struct {
 	Description string            `json:"description,omitempty"`
 }
 
+// Session is the durable representation of a long-running backend session.
 type Session struct {
 	ID             string            `json:"id"`
 	Tenant         string            `json:"tenant"`
@@ -103,6 +111,7 @@ type Session struct {
 	NextSeq        int64             `json:"next_seq"`
 }
 
+// OpenRequest describes the inputs required to create or reuse a session.
 type OpenRequest struct {
 	SessionID string
 	Tenant    string
@@ -112,6 +121,7 @@ type OpenRequest struct {
 	Mode      Mode
 }
 
+// MergeResult contains the merged session snapshot and any conflict keys.
 type MergeResult struct {
 	Session   Session  `json:"session"`
 	Conflicts []string `json:"conflicts,omitempty"`
@@ -121,6 +131,7 @@ type diskState struct {
 	Sessions map[string]*Session `json:"sessions"`
 }
 
+// Service manages durable session lifecycle, replay, and versioned context operations.
 type Service struct {
 	mu           sync.Mutex
 	path         string
@@ -129,6 +140,7 @@ type Service struct {
 	sessions     map[string]*Session
 }
 
+// NewService creates a session service backed by a JSON persistence file.
 func NewService(cfg config.SessionConfig) (*Service, error) {
 	path := cfg.Path
 	if path == "" {

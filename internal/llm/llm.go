@@ -116,6 +116,7 @@ func newHTTPClient() *http.Client {
 	return f()
 }
 
+// NewPool constructs the named LLM backend pool from config.
 func NewPool(cfg config.LLMPool) (*Pool, error) {
 	p := &Pool{backends: make(map[string]*Backend), def: cfg.Default}
 	for _, bc := range cfg.Backends {

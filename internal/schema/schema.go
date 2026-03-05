@@ -16,6 +16,7 @@ const VersionV2 = "v2"
 
 var ErrInvalidSchema = errors.New("invalid schema")
 
+// EnvelopeV2 is the canonical versioned envelope exchanged across runtimes.
 type EnvelopeV2 struct {
 	SchemaVersion  string            `json:"schema_version"`
 	ID             string            `json:"id"`
@@ -32,10 +33,12 @@ type EnvelopeV2 struct {
 	CreatedAt      time.Time         `json:"created_at"`
 }
 
+// NormalizeOptions controls schema normalization behavior.
 type NormalizeOptions struct {
 	StrictV2Validation bool
 }
 
+// NormalizeJSON decodes, defaults, and validates a JSON envelope payload.
 func NormalizeJSON(data []byte, opts NormalizeOptions) (EnvelopeV2, error) {
 	var v2 EnvelopeV2
 	if err := json.Unmarshal(data, &v2); err != nil {
@@ -51,6 +54,7 @@ func NormalizeJSON(data []byte, opts NormalizeOptions) (EnvelopeV2, error) {
 	return v2, nil
 }
 
+// DefaultV2 fills optional EnvelopeV2 fields with backward-compatible defaults.
 func DefaultV2(v2 EnvelopeV2) EnvelopeV2 {
 	if strings.TrimSpace(v2.SchemaVersion) == "" {
 		v2.SchemaVersion = VersionV2
@@ -79,6 +83,7 @@ func DefaultV2(v2 EnvelopeV2) EnvelopeV2 {
 	return v2
 }
 
+// ValidateV2 enforces the required EnvelopeV2 contract.
 func ValidateV2(v2 EnvelopeV2, strict bool) error {
 	if strict && strings.TrimSpace(strings.ToLower(v2.SchemaVersion)) != VersionV2 {
 		return fmt.Errorf("%w: schema_version must be %q in strict mode", ErrInvalidSchema, VersionV2)
@@ -110,6 +115,7 @@ func ValidateV2(v2 EnvelopeV2, strict bool) error {
 	return nil
 }
 
+// BusToV2 maps an internal bus envelope into the versioned schema form.
 func BusToV2(env *bus.Envelope) EnvelopeV2 {
 	if env == nil {
 		return EnvelopeV2{}
@@ -152,6 +158,7 @@ func BusToV2(env *bus.Envelope) EnvelopeV2 {
 	}
 }
 
+// V2ToBus maps a versioned envelope into the internal bus representation.
 func V2ToBus(v2 EnvelopeV2) *bus.Envelope {
 	v2 = DefaultV2(v2)
 	meta := cloneMeta(v2.Meta)

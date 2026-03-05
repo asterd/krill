@@ -5,12 +5,14 @@ import (
 	"time"
 )
 
+// DedupStore tracks recently seen message keys for at-least-once transports.
 type DedupStore struct {
 	ttl  time.Duration
 	mu   sync.Mutex
 	seen map[string]time.Time
 }
 
+// NewDedupStore creates a TTL-based deduplication cache for PubSub message keys.
 func NewDedupStore(ttl time.Duration) *DedupStore {
 	if ttl <= 0 {
 		ttl = 5 * time.Minute

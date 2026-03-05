@@ -7,6 +7,7 @@ import (
 	"time"
 )
 
+// Cron is a compiled 5-field cron matcher.
 type Cron struct {
 	minutes field
 	hours   field
@@ -20,6 +21,7 @@ type field struct {
 	values map[int]struct{}
 }
 
+// Parse compiles a standard 5-field cron expression into a matcher.
 func Parse(expr string) (Cron, error) {
 	parts := strings.Fields(strings.TrimSpace(expr))
 	if len(parts) != 5 {

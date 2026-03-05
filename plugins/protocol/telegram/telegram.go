@@ -30,6 +30,7 @@ func init() {
 
 const tgAPI = "https://api.telegram.org/bot"
 
+// Plugin is the Telegram Bot long-poll protocol plugin.
 type Plugin struct {
 	token  string
 	pollMs time.Duration
@@ -40,6 +41,7 @@ type Plugin struct {
 	norm   *ingress.Normalizer
 }
 
+// New constructs the Telegram protocol plugin from raw config.
 func New(cfg map[string]interface{}) (*Plugin, error) {
 	token := plugincfg.String(cfg, "token")
 	if token == "" {

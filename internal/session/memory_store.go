@@ -5,15 +5,19 @@ import (
 	"github.com/krill/krill/internal/memory"
 )
 
+// MemoryStore decorates a base memory store with session persistence hooks.
 type MemoryStore struct {
 	base memory.Store
 	svc  *Service
 }
 
+// Hydrator restores persisted messages into a live memory backend without
+// re-emitting session persistence side effects.
 type Hydrator interface {
 	Hydrate(clientID, threadID string, msgs []llm.Message)
 }
 
+// WrapMemoryStore decorates a memory store so session persistence is updated on writes.
 func WrapMemoryStore(base memory.Store, svc *Service) memory.Store {
 	if base == nil || svc == nil {
 		return base

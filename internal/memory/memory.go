@@ -31,6 +31,7 @@ type Store interface {
 	Clear(clientID, threadID string)
 }
 
+// NewStore creates the configured memory backend.
 func NewStore(backend, path string) (Store, error) {
 	switch backend {
 	case "", "sqlite":
@@ -56,6 +57,7 @@ type ramStore struct {
 	threads map[string]*thread // key: clientID+":"+threadID
 }
 
+// NewRAM creates a non-persistent in-memory history store.
 func NewRAM() Store {
 	return &ramStore{threads: make(map[string]*thread)}
 }
@@ -118,6 +120,7 @@ type fileStore struct {
 	data map[string][]llm.Message
 }
 
+// NewFile creates a JSON file-backed history store.
 func NewFile(path string) (Store, error) {
 	if path == "" {
 		path = "./.krill/memory.json"
@@ -211,6 +214,7 @@ type sqliteStore struct {
 	db *sql.DB
 }
 
+// NewSQLite creates a SQLite-backed durable history store.
 func NewSQLite(path string) (Store, error) {
 	if path == "" {
 		path = "./.krill/memory.db"

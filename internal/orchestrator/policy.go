@@ -8,6 +8,7 @@ import (
 	"github.com/krill/krill/config"
 )
 
+// HandoffPolicy defines the limits and allow-list applied to cooperative handoffs.
 type HandoffPolicy struct {
 	MaxHops      int
 	AllowedPairs map[string]map[string]struct{}
@@ -15,6 +16,7 @@ type HandoffPolicy struct {
 	TokenBudget  int
 }
 
+// HandoffCommand describes a proposed or executed handoff between agents.
 type HandoffCommand struct {
 	OriginAgent     string
 	TargetAgent     string
@@ -24,6 +26,7 @@ type HandoffCommand struct {
 	Elapsed         time.Duration
 }
 
+// HandoffEvent is the persisted audit record for a completed handoff.
 type HandoffEvent struct {
 	OriginAgent string    `json:"origin_agent"`
 	TargetAgent string    `json:"target_agent"`
@@ -31,6 +34,7 @@ type HandoffEvent struct {
 	OccurredAt  time.Time `json:"occurred_at"`
 }
 
+// WorkflowState tracks policy-relevant state while a workflow is executing.
 type WorkflowState struct {
 	WorkflowID   string         `json:"workflow_id"`
 	Hop          int            `json:"hop"`
@@ -38,6 +42,7 @@ type WorkflowState struct {
 	HandoffChain []HandoffEvent `json:"handoff_chain"`
 }
 
+// PolicyDecision is the result of evaluating a handoff or workflow step.
 type PolicyDecision struct {
 	Allow  bool
 	Reason string

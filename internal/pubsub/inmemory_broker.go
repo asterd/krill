@@ -6,12 +6,14 @@ import (
 	"sync"
 )
 
+// InMemoryBroker is a simple fan-out broker shared by local adapter implementations.
 type InMemoryBroker struct {
 	mu        sync.RWMutex
 	subs      map[string][]chan *Message
 	failCount map[string]int
 }
 
+// NewInMemoryBroker creates an in-process broker used by adapter tests and local runs.
 func NewInMemoryBroker() *InMemoryBroker {
 	return &InMemoryBroker{
 		subs:      make(map[string][]chan *Message),

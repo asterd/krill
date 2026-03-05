@@ -15,6 +15,7 @@ import (
 	"github.com/krill/krill/internal/telemetry"
 )
 
+// Trigger is the execution payload emitted by the scheduler engine.
 type Trigger struct {
 	ScheduleID  string
 	Target      string
@@ -27,6 +28,7 @@ type Trigger struct {
 	SessionMode string
 }
 
+// AuditRecord captures the observable outcome of a scheduled run attempt.
 type AuditRecord struct {
 	ScheduleID string    `json:"schedule_id"`
 	RunAt      time.Time `json:"run_at"`
@@ -35,8 +37,10 @@ type AuditRecord struct {
 	Reason     string    `json:"reason,omitempty"`
 }
 
+// Executor runs a scheduler trigger.
 type Executor func(context.Context, Trigger) error
 
+// Clock abstracts time for deterministic scheduler tests.
 type Clock interface {
 	Now() time.Time
 }
@@ -45,6 +49,7 @@ type realClock struct{}
 
 func (realClock) Now() time.Time { return time.Now().UTC() }
 
+// Engine evaluates schedules and dispatches matching triggers.
 type Engine struct {
 	log      *slog.Logger
 	clock    Clock
@@ -64,10 +69,12 @@ type entry struct {
 	cancel  context.CancelFunc
 }
 
+// NewEngine builds a scheduler engine using the real wall clock.
 func NewEngine(cfg config.SchedulerConfig, exec Executor, log *slog.Logger) (*Engine, error) {
 	return NewEngineWithClock(cfg, exec, log, realClock{})
 }
 
+// NewEngineWithClock builds a scheduler engine with an injected clock.
 func NewEngineWithClock(cfg config.SchedulerConfig, exec Executor, log *slog.Logger, clock Clock) (*Engine, error) {
 	if exec == nil {
 		return nil, fmt.Errorf("executor is required")
@@ -232,6 +239,7 @@ func (e *Engine) record(record AuditRecord) {
 	e.mu.Unlock()
 }
 
+// BusExecutor converts scheduler triggers into inbound bus envelopes.
 func BusExecutor(b bus.Bus) Executor {
 	return func(ctx context.Context, trigger Trigger) error {
 		if b == nil {

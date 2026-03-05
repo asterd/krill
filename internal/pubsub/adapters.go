@@ -30,6 +30,7 @@ type natsAdapter struct {
 	broker *InMemoryBroker
 }
 
+// NewNATSAdapter creates the in-memory-backed NATS adapter used by the runtime.
 func NewNATSAdapter(cfg Config) Adapter {
 	return &natsAdapter{cfg: cfg, broker: sharedBroker("nats:" + cfg.Endpoint)}
 }
@@ -73,6 +74,7 @@ type redisStreamsAdapter struct {
 	broker *InMemoryBroker
 }
 
+// NewRedisStreamsAdapter creates the in-memory-backed Redis Streams adapter.
 func NewRedisStreamsAdapter(cfg Config) Adapter {
 	return &redisStreamsAdapter{cfg: cfg, broker: sharedBroker("redis:" + cfg.Endpoint)}
 }
@@ -115,6 +117,7 @@ type solaceAdapter struct {
 	cfg Config
 }
 
+// NewSolaceAdapter creates the Solace adapter placeholder.
 func NewSolaceAdapter(cfg Config) Adapter { return &solaceAdapter{cfg: cfg} }
 
 func (a *solaceAdapter) Connect(_ context.Context) error { return ErrNotImplemented }

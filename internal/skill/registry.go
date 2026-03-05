@@ -66,6 +66,7 @@ type Registry struct {
 	log     *slog.Logger
 }
 
+// NewRegistry constructs the skill registry and loads configured skills.
 func NewRegistry(skills []config.SkillConfig, core config.CoreConfig, log *slog.Logger) (*Registry, error) {
 	r := &Registry{
 		entries: make(map[string]*entry),

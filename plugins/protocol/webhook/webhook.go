@@ -30,6 +30,7 @@ func init() {
 	})
 }
 
+// Plugin is the generic webhook ingress plugin.
 type Plugin struct {
 	addr        string
 	path        string
@@ -43,6 +44,7 @@ type Plugin struct {
 	norm        *ingress.Normalizer
 }
 
+// New constructs the webhook plugin from raw config.
 func New(cfg map[string]interface{}) (*Plugin, error) {
 	return &Plugin{
 		addr:        plugincfg.StringDefault(cfg, "addr", ":8081"),

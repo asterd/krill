@@ -22,6 +22,7 @@ func init() {
 	})
 }
 
+// Plugin is the generic PubSub ingress/egress protocol plugin.
 type Plugin struct {
 	cfg       Config
 	adapter   ipubsub.Adapter
@@ -31,6 +32,7 @@ type Plugin struct {
 	processFn func(context.Context, *bus.Envelope) error
 }
 
+// Config holds PubSub plugin runtime settings.
 type Config struct {
 	BrokerType   string
 	Endpoint     string
@@ -44,6 +46,7 @@ type Config struct {
 	StrictSchema bool
 }
 
+// New constructs the PubSub plugin from raw config.
 func New(cfg map[string]interface{}) (*Plugin, error) {
 	parsed := parseConfig(cfg)
 	if parsed.TopicIn == "" {
@@ -82,6 +85,7 @@ func New(cfg map[string]interface{}) (*Plugin, error) {
 	return p, nil
 }
 
+// NewWithAdapter constructs the PubSub plugin with an injected adapter for tests.
 func NewWithAdapter(cfg Config, adapter ipubsub.Adapter) *Plugin {
 	if cfg.AckTimeout <= 0 {
 		cfg.AckTimeout = 5 * time.Second

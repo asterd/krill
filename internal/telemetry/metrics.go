@@ -136,6 +136,7 @@ func metricKey(name string, labels map[string]string) string {
 	return name + "|" + strings.Join(parts, ",")
 }
 
+// IncCounter increments a named telemetry counter when metrics are enabled.
 func IncCounter(name string, delta int64, labels map[string]string) {
 	if delta == 0 || !metricEnabled(name) {
 		return
@@ -156,6 +157,7 @@ func IncCounter(name string, delta int64, labels map[string]string) {
 	})
 }
 
+// SetGauge records the latest value for a named telemetry gauge.
 func SetGauge(name string, value int64, labels map[string]string) {
 	if !metricEnabled(name) {
 		return
@@ -183,6 +185,7 @@ func SetGauge(name string, value int64, labels map[string]string) {
 	})
 }
 
+// ObserveDurationMs records a duration sample in milliseconds.
 func ObserveDurationMs(name string, d time.Duration, labels map[string]string) {
 	if !metricEnabled(name) {
 		return

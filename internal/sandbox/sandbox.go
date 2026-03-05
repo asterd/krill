@@ -46,6 +46,7 @@ type ProcessConfig struct {
 
 type processSandbox struct{ cfg ProcessConfig }
 
+// NewProcess creates an exec-based sandbox implementation.
 func NewProcess(cfg ProcessConfig) (Sandbox, error) {
 	if cfg.Path == "" {
 		return nil, fmt.Errorf("process sandbox: path is required")
@@ -145,6 +146,7 @@ func (w *wasmSandbox) Run(_ context.Context, _ string) (string, error) {
 
 type noopSandbox struct{}
 
+// NewNoop creates a sandbox that echoes inputs without execution.
 func NewNoop() Sandbox { return &noopSandbox{} }
 
 func (n *noopSandbox) Run(_ context.Context, argsJSON string) (string, error) {

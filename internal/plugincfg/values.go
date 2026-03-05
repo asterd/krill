@@ -5,6 +5,7 @@ import (
 	"strings"
 )
 
+// String returns a trimmed string value from a plugin config map.
 func String(cfg map[string]interface{}, key string) string {
 	if cfg == nil {
 		return ""
@@ -13,6 +14,7 @@ func String(cfg map[string]interface{}, key string) string {
 	return strings.TrimSpace(value)
 }
 
+// StringDefault returns a trimmed string value or the provided fallback.
 func StringDefault(cfg map[string]interface{}, key, fallback string) string {
 	if value := String(cfg, key); value != "" {
 		return value
@@ -20,6 +22,7 @@ func StringDefault(cfg map[string]interface{}, key, fallback string) string {
 	return fallback
 }
 
+// Bool returns a boolean value from a plugin config map.
 func Bool(cfg map[string]interface{}, key string) bool {
 	if cfg == nil {
 		return false
@@ -38,6 +41,7 @@ func Bool(cfg map[string]interface{}, key string) bool {
 	}
 }
 
+// IntDefault returns an integer value or the provided fallback.
 func IntDefault(cfg map[string]interface{}, key string, fallback int) int {
 	if cfg == nil {
 		return fallback
