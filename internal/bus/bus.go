@@ -12,6 +12,7 @@ package bus
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -61,8 +62,28 @@ type ToolCall struct {
 // InboundKey is the bus channel all protocols publish user messages to.
 const InboundKey = "__inbound__"
 
+var (
+	replyPrefixMu sync.RWMutex
+	replyPrefix   = "__reply__"
+)
+
+func SetReplyPrefix(prefix string) {
+	replyPrefixMu.Lock()
+	defer replyPrefixMu.Unlock()
+	clean := strings.TrimSpace(prefix)
+	if clean == "" {
+		clean = "__reply__"
+	}
+	replyPrefix = clean
+}
+
 // ReplyKey builds the per-protocol reply channel key.
-func ReplyKey(protocol string) string { return "__reply__:" + protocol }
+func ReplyKey(protocol string) string {
+	replyPrefixMu.RLock()
+	prefix := replyPrefix
+	replyPrefixMu.RUnlock()
+	return prefix + ":" + protocol
+}
 
 // ─── Bus interface ────────────────────────────────────────────────────────────
 

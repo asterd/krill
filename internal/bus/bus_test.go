@@ -38,6 +38,7 @@ func TestLocalBusPublishSubscribeAndUnsubscribe(t *testing.T) {
 }
 
 func TestLocalBusPublishContextCancelAndDropOldest(t *testing.T) {
+	SetReplyPrefix("__reply__")
 	b := NewLocal(1)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -58,6 +59,14 @@ func TestLocalBusPublishContextCancelAndDropOldest(t *testing.T) {
 
 	if ReplyKey("http") == ReplyKey("telegram") {
 		t.Fatal("reply keys must differ by protocol")
+	}
+}
+
+func TestReplyKey_UsesConfiguredPrefix(t *testing.T) {
+	SetReplyPrefix("custom-reply")
+	defer SetReplyPrefix("__reply__")
+	if got := ReplyKey("http"); got != "custom-reply:http" {
+		t.Fatalf("unexpected reply key: %s", got)
 	}
 }
 

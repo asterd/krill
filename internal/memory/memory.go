@@ -311,6 +311,13 @@ func (s *sqliteStore) Clear(clientID, threadID string) {
 	telemetry.IncCounter(telemetry.MetricMemoryOpsTotal, 1, map[string]string{"op": "clear", "backend": "sqlite"})
 }
 
+func (s *sqliteStore) Close() error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	return s.db.Close()
+}
+
 func estimateMessageBytes(msg llm.Message) int {
 	total := len(msg.Role) + len(msg.Content) + len(msg.ToolCallID)
 	for _, tc := range msg.ToolCalls {

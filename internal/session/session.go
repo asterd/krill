@@ -302,6 +302,7 @@ func (s *Service) Branch(sessionID string, prov Provenance) (Session, error) {
 	child.BaseSessionID = parent.ID
 	child.BaseContext = cloneStringMap(parent.Context)
 	child.BranchRef = branchRef
+	child.ThreadID = parent.ThreadID + "#" + branchRef
 	child.NextSeq = 1
 	child.Events = nil
 	s.appendEventLocked(&child, Event{Type: EventBranch, OccurredAt: now, Ref: branchRef, Provenance: prov})

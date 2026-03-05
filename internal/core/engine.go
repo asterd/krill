@@ -33,11 +33,13 @@ type Engine struct {
 	orch   *orchestrator.Orch
 	sched  *scheduler.Engine
 	skills *skill.Registry
+	mem    memory.Store
 }
 
 // New wires and validates the engine from config. Does not start I/O.
 func New(cfg *config.Root, log *slog.Logger) (*Engine, error) {
 	// 1. Bus
+	bus.SetReplyPrefix(cfg.Core.ReplyBusPrefix)
 	b := bus.NewLocal(cfg.Core.BusBuffer)
 
 	// 2. LLM pool
@@ -110,6 +112,7 @@ func New(cfg *config.Root, log *slog.Logger) (*Engine, error) {
 		orch:   orch,
 		sched:  sched,
 		skills: skillReg,
+		mem:    mem,
 	}, nil
 }
 
@@ -157,6 +160,11 @@ func (e *Engine) Run(ctx context.Context) error {
 	for _, p := range e.protos {
 		if err := p.Stop(stopCtx); err != nil {
 			e.log.Warn("protocol stop error", "name", p.Name(), "err", err)
+		}
+	}
+	if closer, ok := e.mem.(interface{ Close() error }); ok {
+		if err := closer.Close(); err != nil {
+			e.log.Warn("memory close error", "err", err)
 		}
 	}
 	return nil

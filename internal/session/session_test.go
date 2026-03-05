@@ -136,6 +136,9 @@ func TestBranchMergeCommitReplayDeterministic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if branch.ThreadID == base.ThreadID {
+		t.Fatal("expected branch thread id to diverge from parent for deterministic routing")
+	}
 	if _, err := svc.Commit(branch.ID, map[string]string{"theme": "green", "extra": "yes"}, Provenance{Actor: "branch"}); err != nil {
 		t.Fatal(err)
 	}

@@ -20,6 +20,7 @@ type mockAdapter struct {
 	subscribeErr error
 	pubErr       error
 	msgCh        chan *ipubsub.Message
+	publishN     int
 }
 
 func (m *mockAdapter) Connect(context.Context) error { return m.connectErr }
@@ -32,10 +33,13 @@ func (m *mockAdapter) Subscribe(context.Context, string, string) (<-chan *ipubsu
 	}
 	return m.msgCh, nil
 }
-func (m *mockAdapter) Publish(context.Context, string, *ipubsub.Message) error { return m.pubErr }
-func (m *mockAdapter) Ack(*ipubsub.Message) error                              { return nil }
-func (m *mockAdapter) Nack(*ipubsub.Message, ipubsub.RetryPolicy) error        { return nil }
-func (m *mockAdapter) Close() error                                            { return nil }
+func (m *mockAdapter) Publish(context.Context, string, *ipubsub.Message) error {
+	m.publishN++
+	return m.pubErr
+}
+func (m *mockAdapter) Ack(*ipubsub.Message) error                       { return nil }
+func (m *mockAdapter) Nack(*ipubsub.Message, ipubsub.RetryPolicy) error { return nil }
+func (m *mockAdapter) Close() error                                     { return nil }
 
 func TestPlugin_DedupAndReplyRouting(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -525,4 +529,21 @@ func TestHandleFailure_PublishErrorsAndPublishRepliesBranches(t *testing.T) {
 	_ = b.Publish(ctx, bus.ReplyKey("pubsub"), &bus.Envelope{Role: bus.RoleUser}) // ignored
 	_ = b.Publish(ctx, bus.ReplyKey("pubsub"), nil)                               // ignored nil
 	b.Unsubscribe(bus.ReplyKey("pubsub"))                                         // close channel branch
+}
+
+func TestHandleFailure_ContextCancelledSkipsRepublish(t *testing.T) {
+	adapter := &mockAdapter{}
+	p := NewWithAdapter(Config{
+		TopicIn:    "in",
+		TopicOut:   "out",
+		Retry:      ipubsub.RetryPolicy{MaxRetries: 1, Backoff: 50 * time.Millisecond},
+		AckTimeout: 50 * time.Millisecond,
+	}, adapter)
+	p.log = slog.Default()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	p.handleFailure(ctx, &ipubsub.Message{ID: "cancelled"}, context.Canceled)
+	if adapter.publishN != 0 {
+		t.Fatalf("expected cancelled retry to skip republish, got %d publishes", adapter.publishN)
+	}
 }

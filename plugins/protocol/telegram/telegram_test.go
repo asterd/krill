@@ -61,6 +61,31 @@ func (errorRT) RoundTrip(*http.Request) (*http.Response, error) {
 	return nil, errors.New("network down")
 }
 
+type telegramBadStatusRT struct{}
+
+func (telegramBadStatusRT) RoundTrip(req *http.Request) (*http.Response, error) {
+	body := `{"ok":false}`
+	return &http.Response{
+		StatusCode: 500,
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Header:     make(http.Header),
+	}, nil
+}
+
+type telegramBadAckRT struct{}
+
+func (telegramBadAckRT) RoundTrip(req *http.Request) (*http.Response, error) {
+	body := `{"ok":false}`
+	if strings.Contains(req.URL.Path, "/getUpdates") {
+		body = `{"ok":false,"result":[]}`
+	}
+	return &http.Response{
+		StatusCode: 200,
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Header:     make(http.Header),
+	}, nil
+}
+
 func TestNewStartPollRelayStop_NonRegression(t *testing.T) {
 	p, err := New(map[string]interface{}{"token": "test-token", "poll_ms": 1, "_strict_v2_validation": true})
 	if err != nil {
@@ -184,6 +209,22 @@ func TestGetUpdatesAndSend_ErrorBranches(t *testing.T) {
 	}
 	if err := p.send(context.Background(), "42", "x"); err == nil {
 		t.Fatal("expected send transport error")
+	}
+
+	p.http = &http.Client{Transport: telegramBadStatusRT{}}
+	if _, err := p.getUpdates(context.Background(), 0); err == nil {
+		t.Fatal("expected getUpdates http status error")
+	}
+	if err := p.send(context.Background(), "42", "x"); err == nil {
+		t.Fatal("expected send http status error")
+	}
+
+	p.http = &http.Client{Transport: telegramBadAckRT{}}
+	if _, err := p.getUpdates(context.Background(), 0); err == nil {
+		t.Fatal("expected getUpdates ok=false error")
+	}
+	if err := p.send(context.Background(), "42", "x"); err == nil {
+		t.Fatal("expected send ok=false error")
 	}
 }
 

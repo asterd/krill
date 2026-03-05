@@ -138,7 +138,7 @@ func (o *Orch) route(ctx context.Context, env *bus.Envelope) {
 		o.restoreSessionContext(env)
 		agentCfg := o.selectAgent(env, routeSpan.SpanID())
 		skillView := o.buildSkillView(agentCfg)
-		loop = agent.New(agentCfg, o.b, o.mem, skillView, o.llms, o.log)
+		loop = agent.New(agentCfg, o.b, o.mem, o.cfg.Core.MemoryWindow, skillView, o.llms, o.log)
 
 		loopCtx, cancel := context.WithCancel(ctx)
 		o.loops[env.ClientID] = loop

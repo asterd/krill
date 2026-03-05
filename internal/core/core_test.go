@@ -22,6 +22,7 @@ import (
 // ─── Bus ──────────────────────────────────────────────────────────────────────
 
 func TestBus_PublishSubscribe(t *testing.T) {
+	bus.SetReplyPrefix("__reply__")
 	b := bus.NewLocal(16)
 	ch := b.Subscribe("test-key")
 	env := &bus.Envelope{ID: "1", ClientID: "c1", Role: bus.RoleUser, CreatedAt: time.Now()}
@@ -37,6 +38,7 @@ func TestBus_PublishSubscribe(t *testing.T) {
 }
 
 func TestBus_ReplyKeyIsolation(t *testing.T) {
+	bus.SetReplyPrefix("__reply__")
 	b := bus.NewLocal(8)
 	httpCh := b.Subscribe(bus.ReplyKey("http"))
 	tgCh := b.Subscribe(bus.ReplyKey("telegram"))
@@ -77,11 +79,20 @@ func TestBus_Unsubscribe(t *testing.T) {
 }
 
 func TestBus_InboundKey(t *testing.T) {
+	bus.SetReplyPrefix("__reply__")
 	if bus.InboundKey == "" {
 		t.Fatal("InboundKey must not be empty")
 	}
 	if bus.ReplyKey("http") == bus.ReplyKey("telegram") {
 		t.Fatal("reply keys must differ per protocol")
+	}
+}
+
+func TestBus_ReplyKeyCustomPrefix(t *testing.T) {
+	bus.SetReplyPrefix("krill-reply")
+	defer bus.SetReplyPrefix("__reply__")
+	if got := bus.ReplyKey("http"); got != "krill-reply:http" {
+		t.Fatalf("unexpected custom reply key %q", got)
 	}
 }
 

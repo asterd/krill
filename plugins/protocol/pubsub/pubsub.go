@@ -160,39 +160,41 @@ func (p *Plugin) processWithTimeout(ctx context.Context, msg *ipubsub.Message) e
 	if msg == nil {
 		return fmt.Errorf("nil message")
 	}
+	env, err := p.decodeInbound(msg)
+	if err != nil {
+		return err
+	}
+	span := telemetry.StartSpan(p.log, env.Meta["trace_id"], env.Meta["ingress_span"], "pubsub.receive",
+		"topic", msg.Topic,
+		"id", msg.ID,
+	)
+	duplicate := false
+	defer func() { span.End(err, "duplicate", duplicate) }()
+
+	dedupKey := p.dedupKey(env)
+	if p.isDuplicate(dedupKey, env.ID) {
+		duplicate = true
+		return nil
+	}
+	procCtx, cancel := context.WithTimeout(ctx, p.cfg.AckTimeout)
+	defer cancel()
+
 	procErr := make(chan error, 1)
 	go func() {
-		env, err := p.decodeInbound(msg)
-		if err != nil {
-			procErr <- err
-			return
-		}
-		span := telemetry.StartSpan(p.log, env.Meta["trace_id"], env.Meta["ingress_span"], "pubsub.receive",
-			"topic", msg.Topic,
-			"id", msg.ID,
-		)
-		dedupKey := p.dedupKey(env)
-		if p.isDuplicate(dedupKey, env.ID) {
-			span.End(nil, "duplicate", true)
-			procErr <- nil
-			return
-		}
-		err = p.processFn(ctx, env)
+		procErr <- p.processFn(procCtx, env)
+	}()
+
+	select {
+	case err = <-procErr:
 		if err == nil {
 			p.dedup.Mark(dedupKey, time.Now())
 		}
-		span.End(err, "duplicate", false)
-		procErr <- err
-	}()
-
-	timer := time.NewTimer(p.cfg.AckTimeout)
-	defer timer.Stop()
-
-	select {
-	case err := <-procErr:
 		return err
-	case <-timer.C:
-		return fmt.Errorf("ack timeout after %s", p.cfg.AckTimeout)
+	case <-procCtx.Done():
+		if procCtx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("ack timeout after %s", p.cfg.AckTimeout)
+		}
+		return procCtx.Err()
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -247,7 +249,13 @@ func (p *Plugin) handleFailure(ctx context.Context, msg *ipubsub.Message, cause 
 	if ipubsub.ShouldRetry(p.cfg.Retry, msg.Attempts) {
 		backoff := ipubsub.NextBackoff(p.cfg.Retry, msg.Attempts)
 		p.log.Warn("pubsub nack retry", "id", msg.ID, "attempt", msg.Attempts, "backoff", backoff, "err", cause)
-		time.Sleep(backoff)
+		timer := time.NewTimer(backoff)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+		}
 		if err := p.adapter.Publish(ctx, p.cfg.TopicIn, msg); err != nil {
 			p.log.Warn("pubsub republish failed", "id", msg.ID, "err", err)
 		}

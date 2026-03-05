@@ -178,7 +178,7 @@ func TestNew_WithSessionsAndScheduler(t *testing.T) {
 			BusBuffer:      8,
 			MaxClients:     2,
 			SandboxType:    "exec",
-			ReplyBusPrefix: "__reply__",
+			ReplyBusPrefix: "engine-reply",
 			SkillTimeoutMs: 1000,
 			MemoryWindow:   10,
 			MemoryBackend:  "ram",
@@ -216,6 +216,10 @@ func TestNew_WithSessionsAndScheduler(t *testing.T) {
 	if e.sched == nil {
 		t.Fatal("expected scheduler to be initialized")
 	}
+	if got := bus.ReplyKey("http"); got != "engine-reply:http" {
+		t.Fatalf("expected configured reply prefix, got %s", got)
+	}
+	bus.SetReplyPrefix("__reply__")
 }
 
 func TestRun_StartsScheduler(t *testing.T) {

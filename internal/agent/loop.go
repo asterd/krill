@@ -47,6 +47,7 @@ type Loop struct {
 	log    *slog.Logger
 
 	inbox     chan *bus.Envelope // inbound user messages
+	memWindow int
 	clientID  string
 	threadID  string
 	protocol  string // originating protocol for reply routing
@@ -65,18 +66,23 @@ func New(
 	cfg config.AgentConfig,
 	b bus.Bus,
 	mem memory.Store,
+	memWindow int,
 	skillView *skill.View,
 	llms *llm.Pool,
 	log *slog.Logger,
 ) *Loop {
+	if memWindow <= 0 {
+		memWindow = 100
+	}
 	return &Loop{
-		cfg:    cfg,
-		bus:    b,
-		mem:    mem,
-		skills: skillView,
-		llms:   llms,
-		log:    log,
-		inbox:  make(chan *bus.Envelope, 32),
+		cfg:       cfg,
+		bus:       b,
+		mem:       mem,
+		memWindow: memWindow,
+		skills:    skillView,
+		llms:      llms,
+		log:       log,
+		inbox:     make(chan *bus.Envelope, 32),
 	}
 }
 
@@ -169,7 +175,7 @@ func (l *Loop) react(ctx context.Context, userEnv *bus.Envelope) {
 			"llm", l.cfg.LLM,
 		)
 		// Build request with WINDOWED history and ACTIVE tool defs
-		history := l.mem.Get(l.clientID, l.threadID, 100)
+		history := l.mem.Get(l.clientID, l.threadID, l.memWindow)
 		req := llm.Request{
 			ModelName:    l.cfg.LLM,
 			SystemPrompt: l.buildSystemPrompt(),

@@ -37,7 +37,7 @@ type Plugin struct {
 	b      bus.Bus
 	log    *slog.Logger
 
-	// waiters: clientID → channel that receives the reply envelope
+	// waiters: requestID -> channel that receives the correlated reply envelope.
 	mu      sync.RWMutex
 	waiters map[string]chan *bus.Envelope
 	norm    *ingress.Normalizer
@@ -104,7 +104,7 @@ func (p *Plugin) relayReplies(ctx context.Context) {
 			}
 			// Deliver to the specific waiting client
 			p.mu.RLock()
-			waiter, ok := p.waiters[env.ClientID]
+			waiter, ok := p.waiters[env.Meta["request_id"]]
 			p.mu.RUnlock()
 			if ok {
 				select {
@@ -165,11 +165,11 @@ func (p *Plugin) handleChat(w http.ResponseWriter, r *http.Request) {
 	// Register a waiter BEFORE publishing (avoid race)
 	replyCh := make(chan *bus.Envelope, 1)
 	p.mu.Lock()
-	p.waiters[req.ClientID] = replyCh
+	p.waiters[requestID] = replyCh
 	p.mu.Unlock()
 	defer func() {
 		p.mu.Lock()
-		delete(p.waiters, req.ClientID)
+		delete(p.waiters, requestID)
 		p.mu.Unlock()
 	}()
 

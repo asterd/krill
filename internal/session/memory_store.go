@@ -39,3 +39,10 @@ func (m *MemoryStore) Hydrate(clientID, threadID string, msgs []llm.Message) {
 		m.base.Append(clientID, threadID, msg)
 	}
 }
+
+func (m *MemoryStore) Close() error {
+	if closer, ok := m.base.(interface{ Close() error }); ok {
+		return closer.Close()
+	}
+	return nil
+}

@@ -175,6 +175,10 @@ func (p *Plugin) getUpdates(ctx context.Context, offset int) ([]tgUpdate, error)
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("telegram getUpdates http %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
 	body, _ := io.ReadAll(resp.Body)
 	var r struct {
 		OK     bool       `json:"ok"`
@@ -182,6 +186,9 @@ func (p *Plugin) getUpdates(ctx context.Context, offset int) ([]tgUpdate, error)
 	}
 	if err := json.Unmarshal(body, &r); err != nil {
 		return nil, err
+	}
+	if !r.OK {
+		return nil, fmt.Errorf("telegram getUpdates returned ok=false")
 	}
 	return r.Result, nil
 }
@@ -195,7 +202,22 @@ func (p *Plugin) send(ctx context.Context, chatID, text string) error {
 	if err != nil {
 		return err
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("telegram sendMessage http %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var ack struct {
+		OK bool `json:"ok"`
+	}
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &ack); err != nil {
+			return err
+		}
+		if !ack.OK {
+			return fmt.Errorf("telegram sendMessage returned ok=false")
+		}
+	}
 	return nil
 }
 
