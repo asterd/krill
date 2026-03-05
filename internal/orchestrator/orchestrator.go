@@ -23,6 +23,7 @@ import (
 	"github.com/krill/krill/internal/llm"
 	"github.com/krill/krill/internal/memory"
 	"github.com/krill/krill/internal/skill"
+	"github.com/krill/krill/internal/telemetry"
 )
 
 // Orch manages per-client agent loops.
@@ -82,9 +83,19 @@ func (o *Orch) dispatch(ctx context.Context, in <-chan *bus.Envelope) {
 			if !ok {
 				return
 			}
+			consumeSpan := telemetry.StartSpan(nil, env.Meta["trace_id"], env.Meta["ingress_span"], "bus.consume",
+				"client", env.ClientID,
+				"protocol", env.SourceProtocol,
+			)
 			if env.Role != bus.RoleUser {
+				consumeSpan.End(nil, "skipped_role", string(env.Role))
 				continue // system/tool messages are not user-initiated
 			}
+			if env.Meta == nil {
+				env.Meta = map[string]string{}
+			}
+			env.Meta["consume_span"] = consumeSpan.SpanID()
+			consumeSpan.End(nil)
 			o.route(ctx, env)
 		}
 	}
@@ -92,6 +103,11 @@ func (o *Orch) dispatch(ctx context.Context, in <-chan *bus.Envelope) {
 
 // route ensures a running loop for the client and delivers the envelope.
 func (o *Orch) route(ctx context.Context, env *bus.Envelope) {
+	routeSpan := telemetry.StartSpan(nil, env.Meta["trace_id"], env.Meta["consume_span"], "orchestrator.route",
+		"client", env.ClientID,
+	)
+	defer routeSpan.End(nil, "client", env.ClientID)
+
 	o.mu.Lock()
 	loop, exists := o.loops[env.ClientID]
 	if !exists {
@@ -105,12 +121,13 @@ func (o *Orch) route(ctx context.Context, env *bus.Envelope) {
 			return
 		}
 
-		agentCfg := o.selectAgent(env)
+		agentCfg := o.selectAgent(env, routeSpan.SpanID())
 		skillView := o.buildSkillView(agentCfg)
 		loop = agent.New(agentCfg, o.b, o.mem, skillView, o.llms, o.log)
 
 		loopCtx, cancel := context.WithCancel(ctx)
 		o.loops[env.ClientID] = loop
+		loop.Deliver(env)
 
 		go func(clientID string) {
 			defer func() {
@@ -119,6 +136,7 @@ func (o *Orch) route(ctx context.Context, env *bus.Envelope) {
 				o.mu.Lock()
 				delete(o.loops, clientID)
 				o.mu.Unlock()
+				telemetry.SetGauge(telemetry.MetricActiveLoops, int64(o.ActiveCount()), nil)
 				o.log.Info("agent loop exited", "client", clientID)
 			}()
 			loop.Run(loopCtx)
@@ -129,6 +147,9 @@ func (o *Orch) route(ctx context.Context, env *bus.Envelope) {
 			"agent", agentCfg.Name,
 			"protocol", env.SourceProtocol,
 			"active_loops", len(o.loops))
+		telemetry.SetGauge(telemetry.MetricActiveLoops, int64(len(o.loops)), nil)
+		o.mu.Unlock()
+		return
 	}
 	o.mu.Unlock()
 
@@ -137,7 +158,11 @@ func (o *Orch) route(ctx context.Context, env *bus.Envelope) {
 
 // selectAgent picks the best AgentConfig for the incoming envelope.
 // Priority: protocol match > round-robin > first.
-func (o *Orch) selectAgent(env *bus.Envelope) config.AgentConfig {
+func (o *Orch) selectAgent(env *bus.Envelope, parentSpanID string) config.AgentConfig {
+	span := telemetry.StartSpan(nil, env.Meta["trace_id"], parentSpanID, "orchestrator.select_agent",
+		"protocol", env.SourceProtocol,
+	)
+	defer span.End(nil)
 	agents := o.cfg.Agents
 	if len(agents) == 0 {
 		return defaultAgent(o.cfg.LLM.Default)
@@ -162,6 +187,7 @@ func (o *Orch) selectAgent(env *bus.Envelope) config.AgentConfig {
 		return candidates[idx]
 	}
 
+	telemetry.IncCounter(telemetry.MetricAgentHandoffTotal, 0, nil)
 	return agents[0]
 }
 

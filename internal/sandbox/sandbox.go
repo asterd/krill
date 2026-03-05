@@ -27,6 +27,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/krill/krill/internal/telemetry"
 )
 
 // Sandbox executes a skill in isolation.
@@ -55,6 +57,18 @@ func NewProcess(cfg ProcessConfig) (Sandbox, error) {
 }
 
 func (p *processSandbox) Run(ctx context.Context, argsJSON string) (string, error) {
+	traceID, parentSpanID, requestID := telemetry.TraceFromContext(ctx)
+	span := telemetry.StartSpan(nil, traceID, parentSpanID, "sandbox.lifecycle",
+		"request_id", requestID,
+		"runtime", "exec",
+	)
+	start := time.Now()
+	var endErr error
+	defer func() {
+		telemetry.ObserveDurationMs(telemetry.MetricSandboxExecDuration, time.Since(start), map[string]string{"runtime": "exec"})
+		span.End(endErr, "request_id", requestID, "runtime", "exec")
+	}()
+
 	timeout := time.Duration(p.cfg.TimeoutMs) * time.Millisecond
 	if timeout == 0 {
 		timeout = 30 * time.Second
@@ -65,6 +79,7 @@ func (p *processSandbox) Run(ctx context.Context, argsJSON string) (string, erro
 	// Ephemeral working directory — unique per invocation, wiped after
 	tmpDir, err := os.MkdirTemp("", "krill-*")
 	if err != nil {
+		endErr = err
 		return "", fmt.Errorf("sandbox tmpdir: %w", err)
 	}
 	defer os.RemoveAll(tmpDir)
@@ -92,6 +107,7 @@ func (p *processSandbox) Run(ctx context.Context, argsJSON string) (string, erro
 		if stderr.Len() > 0 {
 			msg += ": " + strings.TrimSpace(stderr.String())
 		}
+		endErr = err
 		return "", fmt.Errorf("skill exec: %s", msg)
 	}
 	return strings.TrimSpace(stdout.String()), nil
@@ -121,7 +137,8 @@ func (w *wasmSandbox) Run(_ context.Context, _ string) (string, error) {
 	// Real implementation lives in wasm_wazero.go (build tag: wasm).
 	// To enable: go build -tags wasm ./...
 	// and add: github.com/tetratelabs/wazero to go.mod
-	return "", fmt.Errorf("wasm sandbox not compiled in (add build tag 'wasm')")
+	err := fmt.Errorf("wasm sandbox not compiled in (add build tag 'wasm')")
+	return "", err
 }
 
 // ─── Noop sandbox (testing) ───────────────────────────────────────────────────

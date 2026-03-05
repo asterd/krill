@@ -14,10 +14,21 @@ import (
 
 type Root struct {
 	Core      CoreConfig    `yaml:"core"`
+	OTEL      OTELConfig    `yaml:"otel"`
 	LLM       LLMPool       `yaml:"llm"`
 	Protocols []PluginRef   `yaml:"protocols"`
 	Agents    []AgentConfig `yaml:"agents"`
 	Skills    []SkillConfig `yaml:"skills"`
+}
+
+type OTELConfig struct {
+	Profile         string  `yaml:"profile"`           // off | minimal | standard | debug
+	Exporter        string  `yaml:"exporter"`          // none | log | otlp_http
+	Endpoint        string  `yaml:"endpoint"`          // OTLP HTTP endpoint base URL
+	ServiceName     string  `yaml:"service_name"`      // default krill
+	SampleRate      float64 `yaml:"sample_rate"`       // 0..1
+	FlushIntervalMs int     `yaml:"flush_interval_ms"` // default 5000
+	ConsoleDebug    bool    `yaml:"console_debug"`     // print text span-end logs for debug
 }
 
 type CoreConfig struct {
@@ -171,6 +182,14 @@ func defaults() *Root {
 			ReplyBusPrefix:             "__reply__",
 			StrictEnvelopeV2Validation: false,
 		},
+		OTEL: OTELConfig{
+			Profile:         "off",
+			Exporter:        "none",
+			ServiceName:     "krill",
+			SampleRate:      1.0,
+			FlushIntervalMs: 5000,
+			ConsoleDebug:    false,
+		},
 	}
 }
 
@@ -186,6 +205,15 @@ func (c *Root) validate() error {
 	}
 	if !slices.Contains([]string{"sqlite", "file", "ram"}, strings.ToLower(strings.TrimSpace(c.Core.MemoryBackend))) {
 		return fmt.Errorf("core.memory_backend must be one of sqlite|file|ram")
+	}
+	if !slices.Contains([]string{"off", "minimal", "standard", "debug"}, strings.ToLower(strings.TrimSpace(c.OTEL.Profile))) {
+		return fmt.Errorf("otel.profile must be one of off|minimal|standard|debug")
+	}
+	if !slices.Contains([]string{"none", "log", "otlp_http"}, strings.ToLower(strings.TrimSpace(c.OTEL.Exporter))) {
+		return fmt.Errorf("otel.exporter must be one of none|log|otlp_http")
+	}
+	if c.OTEL.SampleRate < 0 || c.OTEL.SampleRate > 1 {
+		return fmt.Errorf("otel.sample_rate must be in range [0,1]")
 	}
 	seen := make(map[string]struct{}, len(c.Protocols))
 	for _, p := range c.Protocols {

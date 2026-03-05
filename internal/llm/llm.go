@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/krill/krill/config"
+	"github.com/krill/krill/internal/telemetry"
 )
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -108,6 +109,37 @@ func (p *Pool) Get(name string) (*Backend, error) {
 
 // Complete sends a chat completion request. Returns parsed Response.
 func (b *Backend) Complete(ctx context.Context, req Request) (*Response, error) {
+	traceID, parentSpanID, requestID := telemetry.TraceFromContext(ctx)
+	span := telemetry.StartSpan(nil, traceID, parentSpanID, "llm.call",
+		"request_id", requestID,
+		"model_name", req.ModelName,
+		"provider_model", b.cfg.Model,
+	)
+	var endErr error
+	defer func() {
+		span.End(endErr, "request_id", requestID)
+	}()
+
+	resp, statusCode, body, err := b.completeOnce(ctx, req)
+	if err == nil {
+		return resp, nil
+	}
+	if shouldRetryWithoutTools(statusCode, body, req) {
+		retryReq := req
+		retryReq.Tools = nil
+		retryReq.SystemPrompt = strings.TrimSpace(req.SystemPrompt + "\n\nTool calling is unavailable for this request. Respond directly without calling tools.")
+		resp, _, _, retryErr := b.completeOnce(ctx, retryReq)
+		if retryErr == nil {
+			return resp, nil
+		}
+		endErr = retryErr
+		return nil, retryErr
+	}
+	endErr = err
+	return nil, err
+}
+
+func (b *Backend) completeOnce(ctx context.Context, req Request) (*Response, int, []byte, error) {
 	var msgs []map[string]interface{}
 
 	// System prompt first
@@ -150,19 +182,19 @@ func (b *Backend) Complete(ctx context.Context, req Request) (*Response, error) 
 		strings.TrimRight(b.cfg.BaseURL, "/")+"/v1/chat/completions",
 		bytes.NewReader(payload))
 	if err != nil {
-		return nil, err
+		return nil, 0, nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+b.cfg.APIKey)
 
 	resp, err := b.client.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("llm http: %w", err)
+		return nil, 0, nil, fmt.Errorf("llm http: %w", err)
 	}
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("llm api %d: %s", resp.StatusCode, data)
+		return nil, resp.StatusCode, data, fmt.Errorf("llm api %d: %s", resp.StatusCode, data)
 	}
 
 	var apiResp struct {
@@ -176,10 +208,10 @@ func (b *Backend) Complete(ctx context.Context, req Request) (*Response, error) 
 		Usage Usage `json:"usage"`
 	}
 	if err := json.Unmarshal(data, &apiResp); err != nil {
-		return nil, fmt.Errorf("llm parse: %w", err)
+		return nil, resp.StatusCode, data, fmt.Errorf("llm parse: %w", err)
 	}
 	if len(apiResp.Choices) == 0 {
-		return nil, fmt.Errorf("llm: empty choices")
+		return nil, resp.StatusCode, data, fmt.Errorf("llm: empty choices")
 	}
 
 	c := apiResp.Choices[0].Message
@@ -196,5 +228,13 @@ func (b *Backend) Complete(ctx context.Context, req Request) (*Response, error) 
 		ToolCalls: c.ToolCalls,
 		Message:   rawMsg,
 		Usage:     apiResp.Usage,
-	}, nil
+	}, resp.StatusCode, data, nil
+}
+
+func shouldRetryWithoutTools(statusCode int, body []byte, req Request) bool {
+	if statusCode != http.StatusBadRequest || len(req.Tools) == 0 {
+		return false
+	}
+	text := strings.ToLower(string(body))
+	return strings.Contains(text, "tool_use_failed") || strings.Contains(text, "failed to call a function")
 }

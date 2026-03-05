@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -98,8 +99,6 @@ func (l *Loop) Deliver(env *bus.Envelope) {
 func (l *Loop) Run(ctx context.Context) {
 	idle := time.NewTimer(idleTimeout)
 	defer idle.Stop()
-
-	l.log.Info("agent loop started", "agent", l.cfg.Name, "client", l.clientID)
 
 	for {
 		select {
@@ -186,7 +185,7 @@ func (l *Loop) react(ctx context.Context, userEnv *bus.Envelope) {
 				"request_id", requestID,
 				"turn", turn,
 			)
-			l.reply(ctx, "I encountered an error. Please try again.", tokens)
+			l.reply(ctx, userFacingLLMError(err), tokens)
 			return
 		}
 		tokens.prompt += resp.Usage.PromptTokens
@@ -328,9 +327,29 @@ func (l *Loop) buildSystemPrompt() string {
 	// Inform LLM about available tools count to prevent hallucination
 	if l.skills.ActiveCount() > 0 {
 		base += fmt.Sprintf("\n\nYou have %d tools available. Use them when appropriate.", l.skills.ActiveCount())
+		base += "\nWhen calling a tool, function.arguments must be strict JSON object text."
+		base += "\nDo not emit XML-like tool tags such as <function=...>."
 	}
 	if l.skills.IsActive("code_exec") {
 		base += "\nWhen a request requires exact computation, code generation validation, parsing, or reproducible execution, use code_exec and base your final answer on its result."
 	}
 	return base
+}
+
+func userFacingLLMError(err error) string {
+	msg := "I encountered an LLM provider error. Please try again."
+	if err == nil {
+		return msg
+	}
+	low := strings.ToLower(err.Error())
+	if strings.Contains(low, "tool_use_failed") || strings.Contains(low, "failed to call a function") {
+		return "The model returned an invalid tool call format. Please retry; I will continue without relying on that tool format."
+	}
+	if strings.Contains(low, "llm api 4") {
+		return "The LLM provider rejected this request. Please retry with a simpler prompt."
+	}
+	if strings.Contains(low, "llm api 5") || strings.Contains(low, "timeout") {
+		return "The LLM provider is temporarily unavailable. Please retry shortly."
+	}
+	return msg
 }

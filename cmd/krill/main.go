@@ -13,6 +13,7 @@ import (
 
 	"github.com/krill/krill/config"
 	"github.com/krill/krill/internal/core"
+	"github.com/krill/krill/internal/telemetry"
 
 	// ── Protocol plugins (self-register via init()) ──────────────────────────
 	_ "github.com/krill/krill/plugins/protocol/http"
@@ -35,6 +36,16 @@ func main() {
 	}
 	log := newLogger(cfg.Core.LogFormat)
 	slog.SetDefault(log)
+	telemetry.Configure(telemetry.Config{
+		Profile:         cfg.OTEL.Profile,
+		Exporter:        cfg.OTEL.Exporter,
+		Endpoint:        cfg.OTEL.Endpoint,
+		ServiceName:     cfg.OTEL.ServiceName,
+		SampleRate:      cfg.OTEL.SampleRate,
+		FlushIntervalMs: cfg.OTEL.FlushIntervalMs,
+		ConsoleDebug:    cfg.OTEL.ConsoleDebug,
+	}, log)
+	defer telemetry.Shutdown(context.Background())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

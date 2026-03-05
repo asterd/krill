@@ -31,6 +31,7 @@ import (
 	"github.com/krill/krill/config"
 	"github.com/krill/krill/internal/llm"
 	"github.com/krill/krill/internal/sandbox"
+	"github.com/krill/krill/internal/telemetry"
 )
 
 // Executor is the execution interface for builtin (Go-native) skills.
@@ -169,18 +170,34 @@ func (r *Registry) Exists(name string) bool {
 
 // Execute runs a skill. Returns result or error.
 func (r *Registry) Execute(ctx context.Context, name, argsJSON string) (string, error) {
+	traceID, parentSpanID, requestID := telemetry.TraceFromContext(ctx)
+	span := telemetry.StartSpan(nil, traceID, parentSpanID, "skill.execute",
+		"request_id", requestID,
+		"skill", name,
+	)
+	var endErr error
+	defer func() {
+		span.End(endErr, "request_id", requestID, "skill", name)
+	}()
+
 	r.mu.RLock()
 	e, ok := r.entries[name]
 	r.mu.RUnlock()
 	if !ok {
+		endErr = fmt.Errorf("not found")
 		return "", fmt.Errorf("skill %q not found", name)
 	}
 	if e.exec != nil {
-		return e.exec.Execute(ctx, argsJSON)
+		out, err := e.exec.Execute(ctx, argsJSON)
+		endErr = err
+		return out, err
 	}
 	if e.sb != nil {
-		return e.sb.Run(ctx, argsJSON)
+		out, err := e.sb.Run(ctx, argsJSON)
+		endErr = err
+		return out, err
 	}
+	endErr = fmt.Errorf("missing executor")
 	return "", fmt.Errorf("skill %q has no executor (misconfigured?)", name)
 }
 
@@ -269,6 +286,7 @@ func (v *View) Activate(name string) bool {
 	v.active[name] = true
 	v.mu.Unlock()
 	v.log.Info("skill activated", "skill", name)
+	telemetry.IncCounter(telemetry.MetricSkillActivations, 1, map[string]string{"skill": name})
 	return true
 }
 
@@ -291,6 +309,7 @@ func (v *View) ActivateByTag(tag string) {
 
 	if len(toActivate) > 0 {
 		v.log.Info("skills activated by tag", "tag", tag, "count", len(toActivate))
+		telemetry.IncCounter(telemetry.MetricSkillActivations, int64(len(toActivate)), map[string]string{"tag": tag})
 	}
 }
 

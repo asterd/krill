@@ -20,6 +20,7 @@ import (
 	"github.com/krill/krill/internal/bus"
 	"github.com/krill/krill/internal/core"
 	"github.com/krill/krill/internal/ingress"
+	"github.com/krill/krill/internal/telemetry"
 )
 
 func init() {
@@ -86,7 +87,10 @@ func (p *Plugin) relay(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case env, ok := <-ch:
-			if !ok || env.Role != bus.RoleAssistant {
+			if !ok {
+				return
+			}
+			if env.Role != bus.RoleAssistant {
 				continue
 			}
 			// For async webhooks, log the reply (or forward to a callback URL in Meta)
@@ -96,6 +100,10 @@ func (p *Plugin) relay(ctx context.Context) {
 }
 
 func (p *Plugin) handle(w http.ResponseWriter, r *http.Request) {
+	traceID := telemetry.NewTraceID()
+	span := telemetry.StartSpan(p.log, traceID, "", "webhook.receive", "path", p.path)
+	defer span.End(nil, "path", p.path)
+
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
 		http.Error(w, "read error", http.StatusBadRequest)
@@ -146,8 +154,13 @@ func (p *Plugin) handle(w http.ResponseWriter, r *http.Request) {
 		Role:           bus.RoleUser,
 		Text:           text,
 		SourceProtocol: "webhook",
-		Meta:           map[string]string{"raw": string(body)},
-		CreatedAt:      time.Now(),
+		Meta: map[string]string{
+			"raw":          string(body),
+			"trace_id":     traceID,
+			"request_id":   uuid.NewString(),
+			"ingress_span": span.SpanID(),
+		},
+		CreatedAt: time.Now(),
 	}
 	p.norm.PublishInbound(r.Context(), p.b, env) //nolint:errcheck
 	w.WriteHeader(http.StatusAccepted)

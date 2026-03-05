@@ -77,6 +77,29 @@ func TestRelay_IgnoresNonAssistant(t *testing.T) {
 	}
 }
 
+func TestRelay_ReturnsWhenChannelClosed(t *testing.T) {
+	p, _ := New(map[string]interface{}{})
+	b := bus.NewLocal(4)
+	p.b = b
+	p.log = slog.Default()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		p.relay(ctx)
+		close(done)
+	}()
+
+	time.Sleep(10 * time.Millisecond)
+	b.Unsubscribe(bus.ReplyKey("webhook"))
+	select {
+	case <-done:
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("relay did not stop when reply channel was closed")
+	}
+}
+
 func TestHandle_VerificationBranches(t *testing.T) {
 	payload := `{"user":{"id":"u-2"},"text":"x","type":"url_verification","challenge":"abc"}`
 	p, _ := New(map[string]interface{}{"verify_mode": "none"})

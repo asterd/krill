@@ -23,6 +23,14 @@ config:
       memory_path: /var/lib/krill/memory.db
       log_format: json
       strict_envelope_v2_validation: false
+    otel:
+      profile: off
+      exporter: otlp_http
+      endpoint: ""
+      service_name: krill
+      sample_rate: 1.0
+      flush_interval_ms: 5000
+      console_debug: false
     llm:
       default: gpt4o
       backends:

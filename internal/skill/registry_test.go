@@ -69,3 +69,20 @@ func TestNewRegistry_UnknownRuntimeFails(t *testing.T) {
 		t.Fatal("expected unknown runtime error")
 	}
 }
+
+func TestViewActivateMissingAndRegistryMisconfiguredEntry(t *testing.T) {
+	r, err := NewRegistry(nil, config.CoreConfig{}, slog.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := NewView(r, nil, slog.Default())
+	if v.Activate("ghost") {
+		t.Fatal("activate should fail for missing skill")
+	}
+	r.mu.Lock()
+	r.entries["broken"] = &entry{cfg: config.SkillConfig{Name: "broken"}}
+	r.mu.Unlock()
+	if _, _, err := v.Execute(context.Background(), "broken", `{}`); err == nil {
+		t.Fatal("expected error for skill without executor")
+	}
+}

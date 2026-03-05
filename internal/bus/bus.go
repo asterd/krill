@@ -1,9 +1,9 @@
 // Package bus — the universal internal message backbone.
 //
 // Design contract:
-//   • Protocols publish INBOUND  messages to key "__inbound__"
-//   • Agent loops publish OUTBOUND messages to key "__reply__:<protocol>"
-//   • Protocols subscribe to "__reply__:<their_name>" and filter by ClientID in Meta
+//   - Protocols publish INBOUND  messages to key "__inbound__"
+//   - Agent loops publish OUTBOUND messages to key "__reply__:<protocol>"
+//   - Protocols subscribe to "__reply__:<their_name>" and filter by ClientID in Meta
 //
 // This routing model means:
 //   - The bus is purely a pub/sub channel map; no routing logic lives here.
@@ -14,6 +14,8 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/krill/krill/internal/telemetry"
 )
 
 // ─── Envelope ─────────────────────────────────────────────────────────────────
@@ -29,18 +31,18 @@ const (
 
 // Envelope is the single internal message format all protocols normalize to.
 type Envelope struct {
-	ID       string `json:"id"`
+	ID string `json:"id"`
 	// ClientID identifies the end-user session (e.g. "tg:12345678", "http:uuid")
 	ClientID string `json:"client_id"`
 	// ThreadID is the conversation thread (often == ClientID, but clients may have multiple threads)
 	ThreadID       string            `json:"thread_id"`
 	Role           Role              `json:"role"`
-	Text           string            `json:"text"`            // primary text content
+	Text           string            `json:"text"` // primary text content
 	Attachments    []Attachment      `json:"attachments,omitempty"`
 	ToolCalls      []ToolCall        `json:"tool_calls,omitempty"`
 	ToolCallID     string            `json:"tool_call_id,omitempty"` // for role=tool replies
-	SourceProtocol string            `json:"source_protocol"` // originating plugin name
-	Meta           map[string]string `json:"meta,omitempty"`  // protocol-specific metadata
+	SourceProtocol string            `json:"source_protocol"`        // originating plugin name
+	Meta           map[string]string `json:"meta,omitempty"`         // protocol-specific metadata
 	CreatedAt      time.Time         `json:"created_at"`
 }
 
@@ -87,6 +89,15 @@ func NewLocal(bufSize int) Bus {
 }
 
 func (b *localBus) Publish(ctx context.Context, key string, env *Envelope) error {
+	traceID := ""
+	parentSpan := ""
+	if env != nil && env.Meta != nil {
+		traceID = env.Meta["trace_id"]
+		parentSpan = env.Meta["ingress_span"]
+	}
+	span := telemetry.StartSpan(nil, traceID, parentSpan, "bus.publish", "key", key)
+	defer span.End(nil, "key", key)
+
 	ch := b.getOrCreate(key)
 	select {
 	case ch <- env:
@@ -99,6 +110,9 @@ func (b *localBus) Publish(ctx context.Context, key string, env *Envelope) error
 		default:
 		}
 		ch <- env
+	}
+	if key == InboundKey {
+		telemetry.SetGauge(telemetry.MetricInboundQueueDepth, int64(len(ch)), nil)
 	}
 	return nil
 }

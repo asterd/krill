@@ -288,6 +288,81 @@ protocols:
 	}
 }
 
+func TestLoad_DefaultsOTELOff(t *testing.T) {
+	cfg := `
+core:
+  sandbox_type: exec
+llm:
+  default: gpt4o
+  backends:
+    - name: gpt4o
+      base_url: https://example.test
+      api_key: test
+      model: x
+      max_tokens: 1
+protocols:
+  - name: http
+    enabled: true
+    config: {}
+`
+	got, err := Load(writeTempConfig(t, cfg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.OTEL.Profile != "off" || got.OTEL.Exporter != "none" {
+		t.Fatalf("unexpected OTEL defaults: %+v", got.OTEL)
+	}
+}
+
+func TestLoad_RejectInvalidOTELProfile(t *testing.T) {
+	cfg := `
+core:
+  sandbox_type: exec
+otel:
+  profile: wrong
+llm:
+  default: gpt4o
+  backends:
+    - name: gpt4o
+      base_url: https://example.test
+      api_key: test
+      model: x
+      max_tokens: 1
+protocols:
+  - name: http
+    enabled: true
+    config: {}
+`
+	if _, err := Load(writeTempConfig(t, cfg)); err == nil {
+		t.Fatal("expected otel.profile validation error")
+	}
+}
+
+func TestLoad_RejectInvalidOTELSampleRate(t *testing.T) {
+	cfg := `
+core:
+  sandbox_type: exec
+otel:
+  profile: standard
+  sample_rate: 1.5
+llm:
+  default: gpt4o
+  backends:
+    - name: gpt4o
+      base_url: https://example.test
+      api_key: test
+      model: x
+      max_tokens: 1
+protocols:
+  - name: http
+    enabled: true
+    config: {}
+`
+	if _, err := Load(writeTempConfig(t, cfg)); err == nil {
+		t.Fatal("expected otel.sample_rate validation error")
+	}
+}
+
 func writeTempConfig(t *testing.T, content string) string {
 	t.Helper()
 	dir := t.TempDir()

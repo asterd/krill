@@ -13,6 +13,15 @@ core:
   log_generated_code: false        # when true, code_exec logs generated source
   log_generated_code_max_bytes: 4000
 
+otel:
+  profile: off                     # off | minimal | standard | debug
+  exporter: otlp_http              # none | log | otlp_http
+  endpoint: "http://otel-collector:4318"
+  service_name: krill
+  sample_rate: 1.0                 # 0..1
+  flush_interval_ms: 5000
+  console_debug: false             # if true print text span-end logs in console
+
 llm:
   default: gpt4o
   backends:

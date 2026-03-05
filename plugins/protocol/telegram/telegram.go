@@ -18,6 +18,7 @@ import (
 	"github.com/krill/krill/internal/bus"
 	"github.com/krill/krill/internal/core"
 	"github.com/krill/krill/internal/ingress"
+	"github.com/krill/krill/internal/telemetry"
 )
 
 func init() {
@@ -95,6 +96,9 @@ func (p *Plugin) poll(ctx context.Context) {
 			}
 			chatID := strconv.Itoa(u.Message.Chat.ID)
 			clientID := "tg:" + chatID
+			traceID := telemetry.NewTraceID()
+			requestID := uuid.NewString()
+			span := telemetry.StartSpan(p.log, traceID, "", "telegram.receive", "chat_id", chatID)
 			env := &bus.Envelope{
 				ID:             uuid.NewString(),
 				ClientID:       clientID,
@@ -103,12 +107,16 @@ func (p *Plugin) poll(ctx context.Context) {
 				Text:           u.Message.Text,
 				SourceProtocol: "telegram",
 				Meta: map[string]string{
-					"tg_chat_id": chatID,
-					"tg_user":    u.Message.From.Username,
+					"tg_chat_id":   chatID,
+					"tg_user":      u.Message.From.Username,
+					"trace_id":     traceID,
+					"request_id":   requestID,
+					"ingress_span": span.SpanID(),
 				},
 				CreatedAt: time.Now(),
 			}
 			p.norm.PublishInbound(ctx, p.b, env) //nolint:errcheck
+			span.End(nil, "chat_id", chatID)
 		}
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/krill/krill/internal/core"
 	ipubsub "github.com/krill/krill/internal/pubsub"
 	"github.com/krill/krill/internal/schema"
+	"github.com/krill/krill/internal/telemetry"
 )
 
 func init() {
@@ -166,8 +167,13 @@ func (p *Plugin) processWithTimeout(ctx context.Context, msg *ipubsub.Message) e
 			procErr <- err
 			return
 		}
+		span := telemetry.StartSpan(p.log, env.Meta["trace_id"], env.Meta["ingress_span"], "pubsub.receive",
+			"topic", msg.Topic,
+			"id", msg.ID,
+		)
 		dedupKey := p.dedupKey(env)
 		if p.isDuplicate(dedupKey, env.ID) {
+			span.End(nil, "duplicate", true)
 			procErr <- nil
 			return
 		}
@@ -175,6 +181,7 @@ func (p *Plugin) processWithTimeout(ctx context.Context, msg *ipubsub.Message) e
 		if err == nil {
 			p.dedup.Mark(dedupKey, time.Now())
 		}
+		span.End(err, "duplicate", false)
 		procErr <- err
 	}()
 
@@ -203,6 +210,15 @@ func (p *Plugin) decodeInbound(msg *ipubsub.Message) (*bus.Envelope, error) {
 	env := schema.V2ToBus(v2)
 	if env.SourceProtocol == "" {
 		env.SourceProtocol = "pubsub"
+	}
+	if env.Meta == nil {
+		env.Meta = map[string]string{}
+	}
+	if env.Meta["trace_id"] == "" {
+		env.Meta["trace_id"] = telemetry.NewTraceID()
+	}
+	if env.Meta["request_id"] == "" {
+		env.Meta["request_id"] = msg.ID
 	}
 	return env, nil
 }
