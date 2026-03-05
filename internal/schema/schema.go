@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -113,15 +114,40 @@ func BusToV2(env *bus.Envelope) EnvelopeV2 {
 	if env == nil {
 		return EnvelopeV2{}
 	}
+	tenant := ""
+	workflowID := ""
+	hop := 0
+	capabilities := []string{}
+	if env.Meta != nil {
+		tenant = env.Meta["tenant"]
+		workflowID = env.Meta["workflow_id"]
+		if rawHop := strings.TrimSpace(env.Meta["hop"]); rawHop != "" {
+			if parsedHop, err := strconv.Atoi(rawHop); err == nil {
+				hop = parsedHop
+			}
+		}
+		if rawCaps := strings.TrimSpace(env.Meta["capabilities"]); rawCaps != "" {
+			for _, c := range strings.Split(rawCaps, ",") {
+				c = strings.TrimSpace(c)
+				if c != "" {
+					capabilities = append(capabilities, c)
+				}
+			}
+		}
+	}
 	return EnvelopeV2{
 		SchemaVersion:  VersionV2,
 		ID:             env.ID,
 		ClientID:       env.ClientID,
 		ThreadID:       env.ThreadID,
+		Tenant:         tenant,
+		WorkflowID:     workflowID,
+		Hop:            hop,
 		SourceProtocol: env.SourceProtocol,
 		Role:           string(env.Role),
 		Text:           env.Text,
 		Meta:           cloneMeta(env.Meta),
+		Capabilities:   capabilities,
 		CreatedAt:      env.CreatedAt,
 	}
 }

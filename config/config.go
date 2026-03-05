@@ -13,12 +13,14 @@ import (
 )
 
 type Root struct {
-	Core      CoreConfig    `yaml:"core"`
-	OTEL      OTELConfig    `yaml:"otel"`
-	LLM       LLMPool       `yaml:"llm"`
-	Protocols []PluginRef   `yaml:"protocols"`
-	Agents    []AgentConfig `yaml:"agents"`
-	Skills    []SkillConfig `yaml:"skills"`
+	Core       CoreConfig        `yaml:"core"`
+	OTEL       OTELConfig        `yaml:"otel"`
+	LLM        LLMPool           `yaml:"llm"`
+	Protocols  []PluginRef       `yaml:"protocols"`
+	Agents     []AgentConfig     `yaml:"agents"`
+	Workflows  []WorkflowConfig  `yaml:"workflows"`
+	OrgSchemas []OrgSchemaConfig `yaml:"org_schemas"`
+	Skills     []SkillConfig     `yaml:"skills"`
 }
 
 type OTELConfig struct {
@@ -71,6 +73,46 @@ type AgentConfig struct {
 	EagerSkills []string `yaml:"eager_skills"`
 	// Routing: if the client's source protocol matches, use this agent.
 	MatchProtocol string `yaml:"match_protocol"`
+}
+
+type WorkflowConfig struct {
+	ID                string               `yaml:"id"`
+	OrchestrationMode string               `yaml:"orchestration_mode"` // single | cooperative
+	OrgSchema         string               `yaml:"org_schema"`
+	Policy            WorkflowPolicyConfig `yaml:"policy"`
+}
+
+type WorkflowPolicyConfig struct {
+	MaxHops       int      `yaml:"max_hops"`
+	AllowedPairs  []string `yaml:"allowed_pairs"` // "origin->target"
+	StepTimeoutMs int      `yaml:"step_timeout_ms"`
+	TokenBudget   int      `yaml:"token_budget"`
+}
+
+type OrgSchemaConfig struct {
+	SchemaID        string                    `yaml:"schema_id"`
+	Version         string                    `yaml:"version"`
+	Roles           []OrgRoleConfig           `yaml:"roles"`
+	HandoffRules    []OrgHandoffRuleConfig    `yaml:"handoff_rules"`
+	EscalationRules []OrgEscalationRuleConfig `yaml:"escalation_rules"`
+}
+
+type OrgRoleConfig struct {
+	Name             string   `yaml:"name"`
+	Kind             string   `yaml:"kind"` // router | specialist | synthesizer | custom
+	Agent            string   `yaml:"agent"`
+	Responsibilities []string `yaml:"responsibilities"`
+}
+
+type OrgHandoffRuleConfig struct {
+	From string   `yaml:"from"`
+	To   []string `yaml:"to"`
+}
+
+type OrgEscalationRuleConfig struct {
+	From string `yaml:"from"`
+	To   string `yaml:"to"`
+	When string `yaml:"when"`
 }
 
 // SkillConfig — one entry in the skill marketplace.
@@ -229,6 +271,12 @@ func (c *Root) validate() error {
 			return err
 		}
 	}
+	if err := c.validateOrgSchemas(); err != nil {
+		return err
+	}
+	if err := c.validateWorkflows(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -272,7 +320,142 @@ func validateProtocol(name string, p PluginRef) error {
 			return fmt.Errorf("protocol %q requires config.path starting with '/'", name)
 		}
 		return nil
+	case "a2a":
+		if !p.Enabled {
+			return nil
+		}
+		path, _ := p.Config["path"].(string)
+		if path != "" && !strings.HasPrefix(path, "/") {
+			return fmt.Errorf("protocol %q requires config.path starting with '/'", name)
+		}
+		return nil
 	default:
-		return fmt.Errorf("protocol %q is not in compatibility matrix (http|pubsub|telegram|webhook)", name)
+		return fmt.Errorf("protocol %q is not in compatibility matrix (http|pubsub|telegram|webhook|a2a)", name)
 	}
+}
+
+func (c *Root) validateOrgSchemas() error {
+	if len(c.OrgSchemas) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(c.OrgSchemas))
+	agentSet := make(map[string]struct{}, len(c.Agents))
+	for _, a := range c.Agents {
+		agentSet[strings.TrimSpace(a.Name)] = struct{}{}
+	}
+	for _, s := range c.OrgSchemas {
+		id := strings.TrimSpace(s.SchemaID)
+		if id == "" {
+			return fmt.Errorf("org_schemas.schema_id is required")
+		}
+		if _, ok := seen[id]; ok {
+			return fmt.Errorf("org_schemas %q configured more than once", id)
+		}
+		seen[id] = struct{}{}
+		if len(s.Roles) == 0 {
+			return fmt.Errorf("org_schema %q requires at least one role", id)
+		}
+
+		roleSet := make(map[string]struct{}, len(s.Roles))
+		routerCount := 0
+		synthCount := 0
+		specCount := 0
+		for _, r := range s.Roles {
+			rName := strings.TrimSpace(r.Name)
+			rKind := strings.ToLower(strings.TrimSpace(r.Kind))
+			rAgent := strings.TrimSpace(r.Agent)
+			if rName == "" || rKind == "" || rAgent == "" {
+				return fmt.Errorf("org_schema %q role requires name/kind/agent", id)
+			}
+			if _, ok := roleSet[rName]; ok {
+				return fmt.Errorf("org_schema %q role %q duplicated", id, rName)
+			}
+			roleSet[rName] = struct{}{}
+			if _, ok := agentSet[rAgent]; !ok {
+				return fmt.Errorf("org_schema %q role %q references unknown agent %q", id, rName, rAgent)
+			}
+			if !slices.Contains([]string{"router", "specialist", "synthesizer", "custom"}, rKind) {
+				return fmt.Errorf("org_schema %q role %q has unsupported kind %q", id, rName, rKind)
+			}
+			if rKind == "router" {
+				routerCount++
+			}
+			if rKind == "synthesizer" {
+				synthCount++
+			}
+			if rKind == "specialist" {
+				specCount++
+			}
+		}
+		if routerCount != 1 {
+			return fmt.Errorf("org_schema %q must define exactly one router role", id)
+		}
+		if synthCount != 1 {
+			return fmt.Errorf("org_schema %q must define exactly one synthesizer role", id)
+		}
+		if specCount < 1 {
+			return fmt.Errorf("org_schema %q must define at least one specialist role", id)
+		}
+		for _, rule := range s.HandoffRules {
+			from := strings.TrimSpace(rule.From)
+			if _, ok := roleSet[from]; !ok {
+				return fmt.Errorf("org_schema %q handoff rule references unknown from role %q", id, from)
+			}
+			if len(rule.To) == 0 {
+				return fmt.Errorf("org_schema %q handoff rule from %q must include at least one destination", id, from)
+			}
+			for _, to := range rule.To {
+				if _, ok := roleSet[strings.TrimSpace(to)]; !ok {
+					return fmt.Errorf("org_schema %q handoff rule references unknown target role %q", id, to)
+				}
+			}
+		}
+		for _, esc := range s.EscalationRules {
+			if _, ok := roleSet[strings.TrimSpace(esc.From)]; !ok {
+				return fmt.Errorf("org_schema %q escalation rule references unknown from role %q", id, esc.From)
+			}
+			if _, ok := roleSet[strings.TrimSpace(esc.To)]; !ok {
+				return fmt.Errorf("org_schema %q escalation rule references unknown target role %q", id, esc.To)
+			}
+		}
+	}
+	return nil
+}
+
+func (c *Root) validateWorkflows() error {
+	if len(c.Workflows) == 0 {
+		return nil
+	}
+	orgSet := make(map[string]struct{}, len(c.OrgSchemas))
+	for _, s := range c.OrgSchemas {
+		orgSet[strings.TrimSpace(s.SchemaID)] = struct{}{}
+	}
+	seen := make(map[string]struct{}, len(c.Workflows))
+	for _, wf := range c.Workflows {
+		id := strings.TrimSpace(wf.ID)
+		mode := strings.ToLower(strings.TrimSpace(wf.OrchestrationMode))
+		if id == "" {
+			return fmt.Errorf("workflows.id is required")
+		}
+		if _, ok := seen[id]; ok {
+			return fmt.Errorf("workflow %q configured more than once", id)
+		}
+		seen[id] = struct{}{}
+		if mode == "" {
+			mode = "single"
+		}
+		if !slices.Contains([]string{"single", "cooperative"}, mode) {
+			return fmt.Errorf("workflow %q orchestration_mode must be single|cooperative", id)
+		}
+		if mode == "cooperative" {
+			org := strings.TrimSpace(wf.OrgSchema)
+			if org == "" {
+				return fmt.Errorf("workflow %q in cooperative mode requires org_schema", id)
+			}
+			if _, ok := orgSet[org]; !ok {
+				return fmt.Errorf("workflow %q references unknown org_schema %q", id, org)
+			}
+		}
+	}
+	return nil
 }

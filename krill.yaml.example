@@ -61,6 +61,12 @@ protocols:
       client_field: user.id
       text_field: text
 
+  - name: a2a
+    enabled: false
+    config:
+      addr: ":8091"
+      path: "/a2a/v1/envelope"
+
   - name: pubsub
     enabled: false
     config:
@@ -88,5 +94,37 @@ agents:
     system_prompt: |
       You are a concise, helpful assistant.
       Use tools when they help give a better answer. Be brief.
+
+org_schemas:
+  - schema_id: default-coop-v1
+    version: v1
+    roles:
+      - name: router
+        kind: router
+        agent: default
+      - name: specialist
+        kind: specialist
+        agent: default
+      - name: synthesizer
+        kind: synthesizer
+        agent: default
+    handoff_rules:
+      - from: router
+        to: [specialist]
+      - from: specialist
+        to: [synthesizer]
+
+workflows:
+  - id: default
+    orchestration_mode: single
+  - id: coop-default
+    orchestration_mode: cooperative
+    org_schema: default-coop-v1
+    policy:
+      max_hops: 4
+      step_timeout_ms: 30000
+      token_budget: 12000
+      allowed_pairs:
+        - default->default
 
 # skills: []   # add custom exec/wasm skills here

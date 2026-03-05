@@ -3,13 +3,21 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/krill/krill/config"
 	"github.com/krill/krill/internal/telemetry"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 func newTestBackend(t *testing.T, handler http.HandlerFunc) *Backend {
 	t.Helper()
@@ -220,5 +228,42 @@ func TestComplete_RetryWithoutToolsOnToolUseFailed(t *testing.T) {
 	}
 	if callCount != 2 {
 		t.Fatalf("expected retry flow with 2 calls, got %d", callCount)
+	}
+}
+
+func TestSetClientFactoryForTests(t *testing.T) {
+	restore := SetClientFactoryForTests(func() *http.Client {
+		return &http.Client{
+			Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+				body := `{"choices":[{"message":{"role":"assistant","content":"factory-ok"}}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(body)),
+				}, nil
+			}),
+		}
+	})
+	defer restore()
+
+	pool, err := NewPool(config.LLMPool{
+		Default: "mock",
+		Backends: []config.LLMConfig{
+			{Name: "mock", BaseURL: "http://mock.local", APIKey: "k", Model: "m"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend, err := pool.Get("mock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := backend.Complete(context.Background(), Request{ModelName: "mock"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Content != "factory-ok" {
+		t.Fatalf("unexpected response content: %+v", resp)
 	}
 }

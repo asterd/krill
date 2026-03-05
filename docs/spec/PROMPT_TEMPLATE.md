@@ -46,17 +46,16 @@ Implementa la milestone M4 usando come fonte unica:
 
 
 
-Implementa la milestone M2 usando come fonte unica:
+Implementa la milestone M3 usando come fonte unica:
 - docs/spec/SPEC.md
-- docs/spec/milestones/M2.md
+- docs/spec/milestones/M3.md
 
 Obiettivi operativi:
 1) Rispetta rigidamente lo scope della milestone.
-2) Mantieni retrocompatibilità e non introdurre breaking changes non richieste.
-3) Se la milestone include runtime/deploy, allinea:
+2) Se la milestone include runtime/deploy, allinea:
    - path locale: docker + docker-compose + docker-sandbox con startup script unico
    - path cluster: helm + mini-kube script + install docs per k8s/openshift
-4) Mantieni le configurazioni clear e versionate (default + overlay env specifici).
+3) Mantieni le configurazioni clear e versionate (default + overlay env specifici).
 
 Quality gates obbligatori:
 1) Aggiungi test unitari, integrazione e non-regressione.

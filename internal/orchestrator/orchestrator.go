@@ -39,6 +39,9 @@ type Orch struct {
 	loops   map[string]*agent.Loop // clientID → loop
 	sem     chan struct{}          // capacity = max_clients
 	rrIndex atomic.Int64           // round-robin cursor
+
+	wfMu     sync.Mutex
+	wfStates map[string]WorkflowState // workflow request state by envelope id
 }
 
 func New(
@@ -62,6 +65,7 @@ func New(
 		log:      log,
 		loops:    make(map[string]*agent.Loop),
 		sem:      make(chan struct{}, maxClients),
+		wfStates: make(map[string]WorkflowState),
 	}, nil
 }
 
@@ -103,6 +107,11 @@ func (o *Orch) dispatch(ctx context.Context, in <-chan *bus.Envelope) {
 
 // route ensures a running loop for the client and delivers the envelope.
 func (o *Orch) route(ctx context.Context, env *bus.Envelope) {
+	if wf, ok := o.workflowFor(env); ok && isCooperativeWorkflow(wf) {
+		o.routeCooperative(ctx, env, wf)
+		return
+	}
+
 	routeSpan := telemetry.StartSpan(nil, env.Meta["trace_id"], env.Meta["consume_span"], "orchestrator.route",
 		"client", env.ClientID,
 	)

@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/krill/krill/config"
@@ -83,12 +84,44 @@ type Pool struct {
 	def      string
 }
 
+var (
+	clientFactoryMu sync.RWMutex
+	clientFactory   = func() *http.Client {
+		return &http.Client{Timeout: 120 * time.Second}
+	}
+)
+
+// SetClientFactoryForTests overrides Backend HTTP client creation.
+// Intended for tests that need to mock transport without opening sockets.
+func SetClientFactoryForTests(factory func() *http.Client) (restore func()) {
+	clientFactoryMu.Lock()
+	prev := clientFactory
+	if factory == nil {
+		clientFactory = func() *http.Client { return &http.Client{Timeout: 120 * time.Second} }
+	} else {
+		clientFactory = factory
+	}
+	clientFactoryMu.Unlock()
+	return func() {
+		clientFactoryMu.Lock()
+		clientFactory = prev
+		clientFactoryMu.Unlock()
+	}
+}
+
+func newHTTPClient() *http.Client {
+	clientFactoryMu.RLock()
+	f := clientFactory
+	clientFactoryMu.RUnlock()
+	return f()
+}
+
 func NewPool(cfg config.LLMPool) (*Pool, error) {
 	p := &Pool{backends: make(map[string]*Backend), def: cfg.Default}
 	for _, bc := range cfg.Backends {
 		p.backends[bc.Name] = &Backend{
 			cfg:    bc,
-			client: &http.Client{Timeout: 120 * time.Second},
+			client: newHTTPClient(),
 		}
 	}
 	if len(p.backends) == 0 {

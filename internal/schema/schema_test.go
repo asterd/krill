@@ -55,8 +55,14 @@ func TestBusMapping_Roundtrip(t *testing.T) {
 		Role:           bus.RoleUser,
 		Text:           "hello",
 		SourceProtocol: "http",
-		Meta:           map[string]string{"trace_id": "1"},
-		CreatedAt:      now,
+		Meta: map[string]string{
+			"trace_id":     "1",
+			"tenant":       "acme",
+			"workflow_id":  "wf-coop",
+			"hop":          "2",
+			"capabilities": "net,code",
+		},
+		CreatedAt: now,
 	}
 	v2 := DefaultV2(BusToV2(in))
 	if err := ValidateV2(v2, true); err != nil {
@@ -68,6 +74,9 @@ func TestBusMapping_Roundtrip(t *testing.T) {
 	}
 	if out.Meta["schema_version"] != "v2" {
 		t.Fatalf("schema_version metadata missing: %+v", out.Meta)
+	}
+	if v2.WorkflowID != "wf-coop" || v2.Tenant != "acme" || v2.Hop != 2 {
+		t.Fatalf("expected workflow metadata preserved, got tenant=%q workflow=%q hop=%d", v2.Tenant, v2.WorkflowID, v2.Hop)
 	}
 }
 

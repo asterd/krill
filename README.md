@@ -31,28 +31,142 @@ curl -X POST http://localhost:8080/v1/chat \
 
 ---
 
+## Quick Cooperative + A2A Demo
+
+Enable `a2a` and a cooperative workflow in `krill.yaml`:
+
+```yaml
+protocols:
+  - name: a2a
+    enabled: true
+    config:
+      addr: ":8091"
+      path: "/a2a/v1/envelope"
+
+workflows:
+  - id: wf-coop
+    orchestration_mode: cooperative
+    org_schema: default-coop-v1
+```
+
+Send a strict `EnvelopeV2` to A2A ingress:
+
+```bash
+curl -X POST http://localhost:8091/a2a/v1/envelope \
+  -H "Content-Type: application/json" \
+  -d '{
+    "schema_version":"v2",
+    "id":"a2a-1",
+    "client_id":"demo-client",
+    "thread_id":"demo-thread",
+    "tenant":"default",
+    "workflow_id":"wf-coop",
+    "source_protocol":"a2a",
+    "role":"user",
+    "text":"Route this request and synthesize a final answer.",
+    "meta":{"origin_agent":"external-router","target_agent":"router","handoff_reason":"initial_handoff"},
+    "created_at":"2026-03-05T10:00:00Z"
+  }'
+```
+
+---
+
 ## Architecture
 
-```
-Protocols (HTTP/Telegram/Webhook)
-        │  normalize to bus.Envelope
-        ▼
-   Internal Bus  (__inbound__ / __reply__:<proto>)
-        │
-        ▼
-   Orchestrator  (per-client fan-out, semaphore)
-        │  creates one Loop per client
-        ▼
-   Agent Loop    (ReAct: think → tool → observe)
-        │  uses skill.View (progressive loading)
-        ▼
-   Skill Registry  (builtin / exec / wasm sandboxes)
+Krill is a protocol-agnostic agent runtime with two orchestration paths:
+- **single-agent** (legacy-compatible ReAct loop per client)
+- **cooperative multi-agent** (router/specialist/synthesizer driven by declarative `OrgSchema`)
+
+### 1) End-to-end runtime flow
+
+```mermaid
+flowchart LR
+  P["Ingress Plugins\nhttp | telegram | webhook | pubsub | a2a"] --> N["Envelope Normalizer (v2)"]
+  N --> B["Internal Bus\n__inbound__ / __reply__:<proto>"]
+  B --> O["Orchestrator"]
+  O --> S["Single-agent loop\n(ReAct + tools)"]
+  O --> C["Cooperative workflow\n(router -> specialist -> synthesizer)"]
+  S --> R["Reply Router"]
+  C --> R
+  R --> E["Egress via source protocol"]
+  S --> M["Memory Store\nram | file | sqlite"]
+  C --> M
+  S --> T["OTEL Trace/Metrics"]
+  C --> T
 ```
 
-**Lazy skill loading (DeerFlow pattern):**  
-Each agent loop has a `skill.View` — only `eager_skills` are sent to the LLM.  
-When the LLM calls a skill not yet active, it auto-promotes on first use.  
-This keeps context lean with 50+ registered skills.
+### 2) Cooperative orchestration (M3)
+
+```mermaid
+sequenceDiagram
+  participant In as Ingress (A2A/HTTP/...)
+  participant Or as Orchestrator
+  participant Rt as Router Agent
+  participant Sp as Specialist Agent
+  participant Sy as Synthesizer Agent
+  participant Out as Reply Channel
+
+  In->>Or: EnvelopeV2 (workflow_id, trace_id)
+  Or->>Or: Select workflow (single|cooperative)
+  Or->>Or: Compile OrgSchema + build policy
+  Or->>Rt: Step 1 (same trace_id)
+  Rt-->>Or: Routed context
+  Or->>Sp: Step 2 (handoff policy checks)
+  Sp-->>Or: Specialized result
+  Or->>Sy: Step 3 (aggregation)
+  Sy-->>Or: Final answer
+  Or->>Out: assistant reply + handoff_chain + token totals
+```
+
+### 3) What is supported today
+
+- **Ingress protocols**
+  - `http` (`/v1/chat`)
+  - `telegram` (polling bot)
+  - `webhook` (generic JSON + signature modes)
+  - `pubsub` (adapter model: `nats`, `redis_streams`, `solace`)
+  - `a2a` (strict v2 envelope validation + handoff metadata support)
+- **Message schema**
+  - canonical `EnvelopeV2`: `schema_version`, `tenant`, `workflow_id`, `hop`, `capabilities`, metadata, timestamps
+  - strict validation mode at ingress
+- **Orchestration**
+  - `single`: per-client loop, protocol-aware routing, max client semaphore
+  - `cooperative`: `OrgSchema`-compiled pipeline with:
+    - roles: `router`, `specialist`, `synthesizer`
+    - handoff policy: `max_hops`, `allowed_pairs`, `step_timeout_ms`, `token_budget`
+    - persisted handoff chain in workflow state metadata
+- **LLM runtime**
+  - OpenAI-compatible chat completions
+  - backend pool + fallback to default backend
+  - retry-without-tools on malformed tool-call responses (`tool_use_failed`)
+- **Skills**
+  - built-in skills + `exec` runtime + `wasm` placeholder + `noop`
+  - lazy skill activation with `skill.View`
+- **Memory/session**
+  - thread-aware history store: `ram` / `file` / `sqlite`
+- **Observability**
+  - OTEL profiles (`off|minimal|standard|debug`)
+  - trace continuity across ingress/orchestrator/agent/tool calls
+  - metrics for loops/queues/handoffs/memory/tool/runtime
+- **Runtime/deploy**
+  - local: Docker/Compose + sandbox profile + one-command scripts
+  - cluster: Helm chart + minikube scripts + k8s/openshift docs
+
+### 4) What it is capable of (extension points)
+
+- Add new protocols via plugin registry (`core.Global().RegisterProtocol`)
+- Replace bus implementation for multi-node horizontal scale
+- Add policy dimensions (quotas, RBAC, trust score) without changing protocol contracts
+- Evolve cooperative compiler from linear pipeline to richer graph planners
+- Add external pubsub adapters and durable workflow state stores
+
+### 5) Security model (practical)
+
+- optional HTTP Bearer auth
+- webhook signature verification (HMAC mode)
+- protocol-specific secrets/tokens kept in config/env
+- exec runtime uses isolated ephemeral workspace and restricted env
+- bounded request body / bounded response payload paths in protocol plugins
 
 ---
 
@@ -67,7 +181,9 @@ krill/
 │   ├── core/
 │   │   ├── engine.go             ← wires everything together
 │   │   └── registry.go           ← plugin factory registry (no circular imports)
-│   ├── orchestrator/orchestrator.go  ← per-client loop manager
+│   ├── orchestrator/orchestrator.go  ← mode selector + single-agent manager
+│   ├── orchestrator/cooperative.go   ← cooperative executor + OrgSchema compiler
+│   ├── orchestrator/policy.go        ← handoff policy evaluator
 │   ├── agent/loop.go             ← ReAct loop with lazy skill loading
 │   ├── skill/registry.go         ← marketplace + View (progressive loading)
 │   ├── memory/memory.go          ← per-thread conversation history
@@ -77,7 +193,8 @@ krill/
     ├── protocol/
     │   ├── http/http.go          ← REST + SSE
     │   ├── telegram/telegram.go  ← long-poll bot
-    │   └── webhook/webhook.go    ← generic (Slack/Discord/WhatsApp)
+    │   ├── webhook/webhook.go    ← generic (Slack/Discord/WhatsApp)
+    │   └── a2a/a2a.go            ← strict A2A ingress
     └── skill/builtins/builtins.go ← http_fetch, json_format, json_extract
 ```
 
@@ -103,7 +220,8 @@ func (p *Plugin) Start(ctx context.Context, b bus.Bus, log *slog.Logger) error {
 func (p *Plugin) Stop(ctx context.Context) error { ... }
 ```
 
-Then add `_ "github.com/krill/krill/plugins/protocol/myproto"` to `cmd/krill/main.go`.
+Then add `_ "github.com/krill/krill/plugins/protocol/myproto"` to `cmd/krill/main.go`
+or in a dedicated file under `cmd/krill/` (same package, blank import).
 
 ---
 
