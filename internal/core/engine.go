@@ -68,7 +68,9 @@ func New(cfg *config.Root, log *slog.Logger) (*Engine, error) {
 			log.Info("protocol disabled", "name", ref.Name)
 			continue
 		}
-		p, err := Global().BuildProtocol(ref.Name, ref.Config)
+		pCfg := copyConfigMap(ref.Config)
+		pCfg["_strict_v2_validation"] = cfg.Core.StrictEnvelopeV2Validation
+		p, err := Global().BuildProtocol(ref.Name, pCfg)
 		if err != nil {
 			return nil, fmt.Errorf("protocol %q: %w", ref.Name, err)
 		}
@@ -84,6 +86,17 @@ func New(cfg *config.Root, log *slog.Logger) (*Engine, error) {
 		orch:   orch,
 		skills: skillReg,
 	}, nil
+}
+
+func copyConfigMap(in map[string]interface{}) map[string]interface{} {
+	if len(in) == 0 {
+		return map[string]interface{}{}
+	}
+	out := make(map[string]interface{}, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 // Run starts all subsystems and blocks until ctx is cancelled.

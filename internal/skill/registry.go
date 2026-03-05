@@ -141,11 +141,17 @@ func (r *Registry) RegisterBuiltin(name, description string, ex Executor, schema
 	td.Function.Parameters = params
 
 	r.mu.Lock()
+	tags := map[string]bool{}
+	if existing, ok := r.entries[name]; ok {
+		for tag := range existing.tags {
+			tags[tag] = true
+		}
+	}
 	r.entries[name] = &entry{
 		cfg:     config.SkillConfig{Name: name, Description: description, Runtime: "builtin"},
 		toolDef: td,
 		exec:    ex,
-		tags:    map[string]bool{},
+		tags:    tags,
 	}
 	r.mu.Unlock()
 	if la, ok := ex.(loggerAware); ok {

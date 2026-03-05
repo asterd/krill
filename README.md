@@ -159,6 +159,27 @@ make test
 go test ./... -race -v -count=1
 ```
 
+### Quick CLI checks (M0)
+
+```bash
+# 1) Full test gates
+go test ./... -race -count=1
+go test ./... -covermode=atomic -coverprofile=coverage.out
+
+# 2) Mapper/normalizer micro-benchmark
+go test ./internal/schema -bench BenchmarkNormalizeV2 -benchmem -run ^$
+
+# 3) Local deploy script smoke tests (mock docker)
+go test ./deploy/scripts/dev -count=1
+
+# 4) Optional live stack smoke (requires docker)
+./deploy/scripts/dev/up.sh
+curl -N -X POST http://localhost:8080/v1/chat \
+  -H "Content-Type: application/json" \
+  -d '{"client_id":"smoke","thread_id":"smoke","message":"ping"}'
+./deploy/scripts/dev/down.sh
+```
+
 ---
 
 ## Coding Sandbox Skill (`code_exec`)

@@ -19,6 +19,7 @@ import (
 
 	"github.com/krill/krill/internal/bus"
 	"github.com/krill/krill/internal/core"
+	"github.com/krill/krill/internal/ingress"
 	"github.com/krill/krill/internal/telemetry"
 )
 
@@ -39,6 +40,7 @@ type Plugin struct {
 	// waiters: clientID → channel that receives the reply envelope
 	mu      sync.RWMutex
 	waiters map[string]chan *bus.Envelope
+	norm    *ingress.Normalizer
 }
 
 func New(cfg map[string]interface{}) (*Plugin, error) {
@@ -50,6 +52,7 @@ func New(cfg map[string]interface{}) (*Plugin, error) {
 		addr:    addr,
 		apiKey:  strVal(cfg, "api_key"),
 		waiters: make(map[string]chan *bus.Envelope),
+		norm:    ingress.NewNormalizer(boolVal(cfg, "_strict_v2_validation") || boolVal(cfg, "strict_v2_validation")),
 	}, nil
 }
 
@@ -186,7 +189,7 @@ func (p *Plugin) handleChat(w http.ResponseWriter, r *http.Request) {
 		},
 		CreatedAt: time.Now(),
 	}
-	if err := p.b.Publish(r.Context(), bus.InboundKey, env); err != nil {
+	if err := p.norm.PublishInbound(r.Context(), p.b, env); err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -267,6 +270,21 @@ func (p *Plugin) auth(next http.HandlerFunc) http.HandlerFunc {
 func strVal(m map[string]interface{}, k string) string {
 	v, _ := m[k].(string)
 	return v
+}
+
+func boolVal(m map[string]interface{}, k string) bool {
+	v, ok := m[k]
+	if !ok {
+		return false
+	}
+	switch x := v.(type) {
+	case bool:
+		return x
+	case string:
+		return strings.EqualFold(strings.TrimSpace(x), "true")
+	default:
+		return false
+	}
 }
 
 func traceIDFromRequest(r *http.Request) string {

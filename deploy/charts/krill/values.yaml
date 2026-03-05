@@ -1,0 +1,62 @@
+image:
+  repository: krill
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  httpPort: 8080
+  webhookPort: 8081
+
+replicaCount: 1
+
+config:
+  path: /etc/krill/krill.yaml
+  inline: |
+    core:
+      bus_buffer: 512
+      max_clients: 2000
+      sandbox_type: exec
+      skill_timeout_ms: 30000
+      memory_window: 100
+      log_format: json
+      strict_envelope_v2_validation: false
+    llm:
+      default: gpt4o
+      backends:
+        - name: gpt4o
+          base_url: https://api.openai.com
+          api_key: $OPENAI_API_KEY
+          model: gpt-4o
+          max_tokens: 4096
+    protocols:
+      - name: http
+        enabled: true
+        config:
+          addr: ":8080"
+      - name: telegram
+        enabled: false
+        config:
+          token: $TELEGRAM_BOT_TOKEN
+          poll_ms: 1000
+      - name: webhook
+        enabled: false
+        config:
+          addr: ":8081"
+          path: "/webhook"
+          secret: $WEBHOOK_SECRET
+          verify_mode: hmac
+          client_field: user.id
+          text_field: text
+    agents:
+      - name: default
+        description: General-purpose assistant
+        llm: gpt4o
+        max_turns: 20
+        eager_skills:
+          - http_fetch
+          - json_format
+          - code_exec
+        system_prompt: |
+          You are a concise, helpful assistant.
+          Use tools when they help give a better answer. Be brief.

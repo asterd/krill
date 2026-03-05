@@ -11,11 +11,13 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/krill/krill/internal/bus"
 	"github.com/krill/krill/internal/core"
+	"github.com/krill/krill/internal/ingress"
 )
 
 func init() {
@@ -33,6 +35,7 @@ type Plugin struct {
 	log    *slog.Logger
 	cancel context.CancelFunc
 	http   *http.Client
+	norm   *ingress.Normalizer
 }
 
 func New(cfg map[string]interface{}) (*Plugin, error) {
@@ -48,6 +51,7 @@ func New(cfg map[string]interface{}) (*Plugin, error) {
 		token:  token,
 		pollMs: time.Duration(ms) * time.Millisecond,
 		http:   &http.Client{Timeout: 35 * time.Second},
+		norm:   ingress.NewNormalizer(boolVal(cfg, "_strict_v2_validation") || boolVal(cfg, "strict_v2_validation")),
 	}, nil
 }
 
@@ -104,7 +108,7 @@ func (p *Plugin) poll(ctx context.Context) {
 				},
 				CreatedAt: time.Now(),
 			}
-			p.b.Publish(ctx, bus.InboundKey, env) //nolint:errcheck
+			p.norm.PublishInbound(ctx, p.b, env) //nolint:errcheck
 		}
 	}
 }
@@ -185,4 +189,19 @@ func (p *Plugin) send(ctx context.Context, chatID, text string) error {
 	}
 	resp.Body.Close()
 	return nil
+}
+
+func boolVal(m map[string]interface{}, k string) bool {
+	v, ok := m[k]
+	if !ok {
+		return false
+	}
+	switch x := v.(type) {
+	case bool:
+		return x
+	case string:
+		return strings.EqualFold(strings.TrimSpace(x), "true")
+	default:
+		return false
+	}
 }

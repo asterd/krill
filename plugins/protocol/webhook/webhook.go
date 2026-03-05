@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/krill/krill/internal/bus"
 	"github.com/krill/krill/internal/core"
+	"github.com/krill/krill/internal/ingress"
 )
 
 func init() {
@@ -37,6 +38,7 @@ type Plugin struct {
 	srv         *http.Server
 	b           bus.Bus
 	log         *slog.Logger
+	norm        *ingress.Normalizer
 }
 
 func New(cfg map[string]interface{}) (*Plugin, error) {
@@ -47,6 +49,7 @@ func New(cfg map[string]interface{}) (*Plugin, error) {
 		verifyMode:  str(cfg, "verify_mode", "none"),
 		clientField: str(cfg, "client_field", "user.id"),
 		textField:   str(cfg, "text_field", "text"),
+		norm:        ingress.NewNormalizer(boolVal(cfg, "_strict_v2_validation") || boolVal(cfg, "strict_v2_validation")),
 	}, nil
 }
 
@@ -146,7 +149,7 @@ func (p *Plugin) handle(w http.ResponseWriter, r *http.Request) {
 		Meta:           map[string]string{"raw": string(body)},
 		CreatedAt:      time.Now(),
 	}
-	p.b.Publish(r.Context(), bus.InboundKey, env) //nolint:errcheck
+	p.norm.PublishInbound(r.Context(), p.b, env) //nolint:errcheck
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -176,4 +179,19 @@ func str(m map[string]interface{}, k, def string) string {
 		return v
 	}
 	return def
+}
+
+func boolVal(m map[string]interface{}, k string) bool {
+	v, ok := m[k]
+	if !ok {
+		return false
+	}
+	switch x := v.(type) {
+	case bool:
+		return x
+	case string:
+		return strings.EqualFold(strings.TrimSpace(x), "true")
+	default:
+		return false
+	}
 }

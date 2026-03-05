@@ -1,0 +1,20 @@
+{
+  "schema_version": "v2",
+  "id": "v2-001",
+  "client_id": "tg:42",
+  "thread_id": "tg:42",
+  "tenant": "tenant-a",
+  "workflow_id": "wf-1",
+  "hop": 2,
+  "source_protocol": "telegram",
+  "role": "user",
+  "text": "ciao",
+  "meta": {
+    "tg_chat_id": "42"
+  },
+  "capabilities": [
+    "tool:http_fetch",
+    "tool:json_parse"
+  ],
+  "created_at": "2026-03-05T10:01:00Z"
+}

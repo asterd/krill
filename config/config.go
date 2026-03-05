@@ -3,8 +3,10 @@ package config
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -33,6 +35,10 @@ type CoreConfig struct {
 	// ReplyBusKey: the bus channel key used to route replies back to protocol plugins.
 	// Each protocol subscribes to "<ReplyBusKey>:<protocol_name>" and filters by ClientID in meta.
 	ReplyBusPrefix string `yaml:"reply_bus_prefix"` // default "__reply__"
+	// StrictEnvelopeV2Validation enforces strict schema_version=v2 validation at ingress normalization.
+	StrictEnvelopeV2Validation bool `yaml:"strict_envelope_v2_validation"`
+	// StrictV2Validation is a legacy alias kept for backward compatibility.
+	StrictV2Validation bool `yaml:"strict_v2_validation"`
 }
 
 type PluginRef struct {
@@ -91,7 +97,14 @@ func Load(path string) (*Root, error) {
 	}
 	data = []byte(os.ExpandEnv(string(data)))
 	cfg := defaults()
-	return cfg, yaml.Unmarshal(data, cfg)
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		return nil, err
+	}
+	cfg.applyCompat()
+	if err := cfg.validate(); err != nil {
+		return nil, err
+	}
+	return cfg, nil
 }
 
 // loadDotEnv reads KEY=VALUE pairs from a .env file and sets them only if
@@ -142,16 +155,71 @@ func loadDotEnv(path string) error {
 func defaults() *Root {
 	return &Root{
 		Core: CoreConfig{
-			BusBuffer:                256,
-			MaxClients:               1000,
-			SandboxType:              "exec",
-			SkillTimeoutMs:           30000,
-			WasmFuel:                 1_000_000_000,
-			MemoryWindow:             100,
-			LogFormat:                "json",
-			LogGeneratedCode:         false,
-			LogGeneratedCodeMaxBytes: 4000,
-			ReplyBusPrefix:           "__reply__",
+			BusBuffer:                  256,
+			MaxClients:                 1000,
+			SandboxType:                "exec",
+			SkillTimeoutMs:             30000,
+			WasmFuel:                   1_000_000_000,
+			MemoryWindow:               100,
+			LogFormat:                  "json",
+			LogGeneratedCode:           false,
+			LogGeneratedCodeMaxBytes:   4000,
+			ReplyBusPrefix:             "__reply__",
+			StrictEnvelopeV2Validation: false,
 		},
+	}
+}
+
+func (c *Root) applyCompat() {
+	if c.Core.StrictV2Validation {
+		c.Core.StrictEnvelopeV2Validation = true
+	}
+}
+
+func (c *Root) validate() error {
+	if !slices.Contains([]string{"exec", "wasm", "noop"}, strings.ToLower(strings.TrimSpace(c.Core.SandboxType))) {
+		return fmt.Errorf("core.sandbox_type must be one of exec|wasm|noop")
+	}
+	seen := make(map[string]struct{}, len(c.Protocols))
+	for _, p := range c.Protocols {
+		name := strings.ToLower(strings.TrimSpace(p.Name))
+		if name == "" {
+			return fmt.Errorf("protocol name is required")
+		}
+		if _, ok := seen[name]; ok {
+			return fmt.Errorf("protocol %q configured more than once", name)
+		}
+		seen[name] = struct{}{}
+		if err := validateProtocol(name, p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateProtocol(name string, p PluginRef) error {
+	switch name {
+	case "http":
+		return nil
+	case "telegram":
+		if !p.Enabled {
+			return nil
+		}
+		token, _ := p.Config["token"].(string)
+		if strings.TrimSpace(token) == "" {
+			return fmt.Errorf("protocol %q requires config.token when enabled", name)
+		}
+		return nil
+	case "webhook":
+		if !p.Enabled {
+			return nil
+		}
+		path, _ := p.Config["path"].(string)
+		if !strings.HasPrefix(path, "/") {
+			return fmt.Errorf("protocol %q requires config.path starting with '/'", name)
+		}
+		return nil
+	default:
+		return fmt.Errorf("protocol %q is not in compatibility matrix (http|telegram|webhook)", name)
 	}
 }

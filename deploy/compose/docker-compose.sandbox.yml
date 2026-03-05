@@ -1,0 +1,9 @@
+version: "3.9"
+
+services:
+  krill:
+    profiles: ["docker-sandbox"]
+    environment:
+      KRILL_SANDBOX_PROFILE: docker-sandbox
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
