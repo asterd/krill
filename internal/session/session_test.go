@@ -54,6 +54,9 @@ func TestLifecycleResumeCheckpointAndPersistence(t *testing.T) {
 	if _, err := svc.Checkpoint(sess.ID, "before restart", Provenance{Actor: "test"}); err != nil {
 		t.Fatal(err)
 	}
+	if err := svc.Flush(); err != nil {
+		t.Fatal(err)
+	}
 
 	restarted, err := NewService(config.SessionConfig{
 		Enabled:                  true,
@@ -219,8 +222,9 @@ func TestManualMergeAndUtilityBranches(t *testing.T) {
 }
 
 func TestNewServiceLoadCorruptedAndOpenValidation(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "sessions.json")
-	if err := os.WriteFile(path, []byte("{bad"), 0o600); err != nil {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sessions.json")
+	if err := os.WriteFile(filepath.Join(dir, "sessions.snapshots.json"), []byte("{bad"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := NewService(config.SessionConfig{Enabled: true, Path: path}); err == nil {
@@ -239,5 +243,64 @@ func TestNewServiceLoadCorruptedAndOpenValidation(t *testing.T) {
 	}
 	if _, err := svc.Replay("missing"); err == nil {
 		t.Fatal("expected replay missing error")
+	}
+}
+
+func TestRecordMessageAsyncQueueFull(t *testing.T) {
+	svc := &Service{asyncQueue: make(chan queuedMessage)}
+	if err := svc.RecordMessageAsync("c1", "t1", llm.Message{Role: "user", Content: "x"}, Provenance{}); err != ErrAsyncQueueFull {
+		t.Fatalf("expected ErrAsyncQueueFull, got %v", err)
+	}
+}
+
+func TestServiceShutdownAndLoadFromEventLog(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sessions.json")
+	svc, err := NewService(config.SessionConfig{
+		Enabled:                  true,
+		Path:                     path,
+		RetentionMaxMessages:     10,
+		SummarizationThreshold:   0,
+		SummarizationKeepRecent:  0,
+		DefaultMergeConflictMode: "last-write-wins",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := svc.Open(OpenRequest{ClientID: "c9", ThreadID: "t9", Mode: ModePersistent}, Provenance{Actor: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.RecordMessageAsync("c9", "t9", llm.Message{Role: "user", Content: "async"}, Provenance{Actor: "test"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Shutdown(); err != nil {
+		t.Fatal(err)
+	}
+
+	eventsPath, snapshotsPath := sessionPaths(path)
+	if err := os.Remove(snapshotsPath); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := NewService(config.SessionConfig{
+		Enabled:                  true,
+		Path:                     path,
+		RetentionMaxMessages:     10,
+		SummarizationThreshold:   0,
+		SummarizationKeepRecent:  0,
+		DefaultMergeConflictMode: "last-write-wins",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restarted.Shutdown()
+	msgs, err := restarted.RestoreMessages(sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 1 || msgs[0].Content != "async" {
+		t.Fatalf("unexpected restored async messages from %s without %s: %+v", eventsPath, snapshotsPath, msgs)
 	}
 }

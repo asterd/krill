@@ -25,23 +25,47 @@ func WrapMemoryStore(base memory.Store, svc *Service) memory.Store {
 	return &MemoryStore{base: base, svc: svc}
 }
 
-func (m *MemoryStore) Append(clientID, threadID string, msg llm.Message) {
-	m.base.Append(clientID, threadID, msg)
-	_ = m.svc.RecordMessage(clientID, threadID, msg, Provenance{Actor: "memory", Source: "memory.append"})
+func (m *MemoryStore) Append(clientID, threadID string, msg llm.Message) error {
+	if err := m.base.Append(clientID, threadID, msg); err != nil {
+		return err
+	}
+	return m.svc.RecordMessageAsync(clientID, threadID, msg, Provenance{Actor: "memory", Source: "memory.append"})
 }
 
-func (m *MemoryStore) Get(clientID, threadID string, window int) []llm.Message {
+func (m *MemoryStore) AppendBatch(clientID, threadID string, msgs []llm.Message) error {
+	if err := m.base.AppendBatch(clientID, threadID, msgs); err != nil {
+		return err
+	}
+	for _, msg := range msgs {
+		if err := m.svc.RecordMessageAsync(clientID, threadID, msg, Provenance{Actor: "memory", Source: "memory.append_batch"}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m *MemoryStore) Get(clientID, threadID string, window int) ([]llm.Message, error) {
 	return m.base.Get(clientID, threadID, window)
 }
 
-func (m *MemoryStore) Clear(clientID, threadID string) {
-	m.base.Clear(clientID, threadID)
+func (m *MemoryStore) Snapshot(clientID, threadID string) (memory.Snapshot, error) {
+	return m.base.Snapshot(clientID, threadID)
+}
+
+func (m *MemoryStore) Restore(clientID, threadID string, snapshot memory.Snapshot) error {
+	return m.base.Restore(clientID, threadID, snapshot)
+}
+
+func (m *MemoryStore) Trim(clientID, threadID string, keep int) error {
+	return m.base.Trim(clientID, threadID, keep)
+}
+
+func (m *MemoryStore) Clear(clientID, threadID string) error {
+	return m.base.Clear(clientID, threadID)
 }
 
 func (m *MemoryStore) Hydrate(clientID, threadID string, msgs []llm.Message) {
-	for _, msg := range msgs {
-		m.base.Append(clientID, threadID, msg)
-	}
+	_ = m.base.AppendBatch(clientID, threadID, msgs)
 }
 
 func (m *MemoryStore) Close() error {

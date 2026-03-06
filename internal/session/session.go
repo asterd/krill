@@ -1,7 +1,9 @@
 package session
 
 import (
+	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,7 +18,6 @@ import (
 	"github.com/krill/krill/internal/telemetry"
 )
 
-// Mode identifies whether a session is ephemeral or persistent.
 type Mode string
 
 const (
@@ -24,7 +25,6 @@ const (
 	ModePersistent Mode = "persistent"
 )
 
-// Status is the lifecycle state of a session.
 type Status string
 
 const (
@@ -32,7 +32,6 @@ const (
 	StatusClosed Status = "closed"
 )
 
-// EventType identifies the kind of audit event stored in a session timeline.
 type EventType string
 
 const (
@@ -47,7 +46,6 @@ const (
 	EventMerge      EventType = "merge"
 )
 
-// MergePolicy controls how branch conflicts are handled during merge.
 type MergePolicy string
 
 const (
@@ -56,21 +54,20 @@ const (
 	MergeManual MergePolicy = "manual"
 )
 
-// Provenance records who or what produced a session mutation.
+var ErrAsyncQueueFull = errors.New("session async queue full")
+
 type Provenance struct {
 	Actor  string            `json:"actor,omitempty"`
 	Source string            `json:"source,omitempty"`
 	Meta   map[string]string `json:"meta,omitempty"`
 }
 
-// HistoryPolicy configures retention and summarization behavior for a session.
 type HistoryPolicy struct {
 	RetentionMaxMessages    int `json:"retention_max_messages"`
 	SummarizationThreshold  int `json:"summarization_threshold"`
 	SummarizationKeepRecent int `json:"summarization_keep_recent"`
 }
 
-// Event is an auditable lifecycle or context mutation in a session timeline.
 type Event struct {
 	Seq         int64             `json:"seq"`
 	Type        EventType         `json:"type"`
@@ -83,9 +80,9 @@ type Event struct {
 	Conflicts   []string          `json:"conflicts,omitempty"`
 	Provenance  Provenance        `json:"provenance,omitempty"`
 	Description string            `json:"description,omitempty"`
+	State       *Session          `json:"state,omitempty"`
 }
 
-// Session is the durable representation of a long-running backend session.
 type Session struct {
 	ID             string            `json:"id"`
 	Tenant         string            `json:"tenant"`
@@ -111,7 +108,6 @@ type Session struct {
 	NextSeq        int64             `json:"next_seq"`
 }
 
-// OpenRequest describes the inputs required to create or reuse a session.
 type OpenRequest struct {
 	SessionID string
 	Tenant    string
@@ -121,40 +117,49 @@ type OpenRequest struct {
 	Mode      Mode
 }
 
-// MergeResult contains the merged session snapshot and any conflict keys.
 type MergeResult struct {
 	Session   Session  `json:"session"`
 	Conflicts []string `json:"conflicts,omitempty"`
 }
 
-type diskState struct {
-	Sessions map[string]*Session `json:"sessions"`
+type queuedMessage struct {
+	clientID string
+	threadID string
+	msg      llm.Message
+	prov     Provenance
 }
 
-// Service manages durable session lifecycle, replay, and versioned context operations.
 type Service struct {
 	mu           sync.Mutex
-	path         string
 	defaults     HistoryPolicy
 	defaultMerge MergePolicy
-	sessions     map[string]*Session
+
+	eventsPath    string
+	snapshotsPath string
+
+	sessions map[string]*Session
+	events   map[string][]Event
+	active   map[string]string
+
+	asyncQueue chan queuedMessage
+	asyncWG    sync.WaitGroup
 }
 
-// NewService creates a session service backed by a JSON persistence file.
 func NewService(cfg config.SessionConfig) (*Service, error) {
-	path := cfg.Path
-	if path == "" {
-		path = "./.krill/sessions.json"
-	}
+	eventsPath, snapshotsPath := sessionPaths(cfg.Path)
 	svc := &Service{
-		path: path,
 		defaults: HistoryPolicy{
 			RetentionMaxMessages:    cfg.RetentionMaxMessages,
 			SummarizationThreshold:  cfg.SummarizationThreshold,
 			SummarizationKeepRecent: cfg.SummarizationKeepRecent,
 		},
-		defaultMerge: MergePolicy(strings.TrimSpace(cfg.DefaultMergeConflictMode)),
-		sessions:     map[string]*Session{},
+		defaultMerge:  MergePolicy(strings.TrimSpace(cfg.DefaultMergeConflictMode)),
+		eventsPath:    eventsPath,
+		snapshotsPath: snapshotsPath,
+		sessions:      map[string]*Session{},
+		events:        map[string][]Event{},
+		active:        map[string]string{},
+		asyncQueue:    make(chan queuedMessage, 256),
 	}
 	if svc.defaultMerge == "" {
 		svc.defaultMerge = MergeLWW
@@ -162,7 +167,21 @@ func NewService(cfg config.SessionConfig) (*Service, error) {
 	if err := svc.load(); err != nil {
 		return nil, err
 	}
+	go svc.runAsyncWriter()
 	return svc, nil
+}
+
+func (s *Service) Shutdown() error {
+	if err := s.Flush(); err != nil {
+		return err
+	}
+	close(s.asyncQueue)
+	return nil
+}
+
+func (s *Service) Flush() error {
+	s.asyncWG.Wait()
+	return nil
 }
 
 func (s *Service) Open(req OpenRequest, prov Provenance) (Session, error) {
@@ -175,6 +194,7 @@ func (s *Service) Open(req OpenRequest, prov Provenance) (Session, error) {
 	if existing := s.findOpenLocked(req.ClientID, req.ThreadID); existing != nil {
 		return cloneSession(*existing), nil
 	}
+
 	now := time.Now().UTC()
 	mode := req.Mode
 	if mode == "" {
@@ -198,9 +218,7 @@ func (s *Service) Open(req OpenRequest, prov Provenance) (Session, error) {
 		LastActivityAt: now,
 		NextSeq:        1,
 	}
-	s.appendEventLocked(sess, Event{Type: EventOpen, OccurredAt: now, Provenance: prov})
-	s.sessions[sess.ID] = sess
-	if err := s.persistLocked(); err != nil {
+	if err := s.commitEventLocked(sess, Event{Type: EventOpen, OccurredAt: now, Provenance: prov}); err != nil {
 		return Session{}, err
 	}
 	return cloneSession(*sess), nil
@@ -213,13 +231,11 @@ func (s *Service) Resume(sessionID string, prov Provenance) (Session, error) {
 	if !ok {
 		return Session{}, fmt.Errorf("session %q not found", sessionID)
 	}
-	now := time.Now().UTC()
-	sess.LastActivityAt = now
-	s.appendEventLocked(sess, Event{Type: EventResume, OccurredAt: now, Provenance: prov})
-	telemetry.IncCounter(telemetry.MetricSessionResumeTotal, 1, map[string]string{"mode": string(sess.Mode)})
-	if err := s.persistLocked(); err != nil {
+	sess.LastActivityAt = time.Now().UTC()
+	if err := s.commitEventLocked(sess, Event{Type: EventResume, OccurredAt: sess.LastActivityAt, Provenance: prov}); err != nil {
 		return Session{}, err
 	}
+	telemetry.IncCounter(telemetry.MetricSessionResumeTotal, 1, map[string]string{"mode": string(sess.Mode)})
 	return cloneSession(*sess), nil
 }
 
@@ -230,13 +246,11 @@ func (s *Service) ResumeByThread(clientID, threadID string, prov Provenance) (Se
 	if sess == nil {
 		return Session{}, false, nil
 	}
-	now := time.Now().UTC()
-	sess.LastActivityAt = now
-	s.appendEventLocked(sess, Event{Type: EventResume, OccurredAt: now, Provenance: prov})
-	telemetry.IncCounter(telemetry.MetricSessionResumeTotal, 1, map[string]string{"mode": string(sess.Mode)})
-	if err := s.persistLocked(); err != nil {
+	sess.LastActivityAt = time.Now().UTC()
+	if err := s.commitEventLocked(sess, Event{Type: EventResume, OccurredAt: sess.LastActivityAt, Provenance: prov}); err != nil {
 		return Session{}, false, err
 	}
+	telemetry.IncCounter(telemetry.MetricSessionResumeTotal, 1, map[string]string{"mode": string(sess.Mode)})
 	return cloneSession(*sess), true, nil
 }
 
@@ -247,17 +261,15 @@ func (s *Service) Checkpoint(sessionID, description string, prov Provenance) (Se
 	if !ok {
 		return Session{}, fmt.Errorf("session %q not found", sessionID)
 	}
-	ref := "chk-" + uuid.NewString()
-	sess.CheckpointRef = ref
+	sess.CheckpointRef = "chk-" + uuid.NewString()
 	sess.LastActivityAt = time.Now().UTC()
-	s.appendEventLocked(sess, Event{
+	if err := s.commitEventLocked(sess, Event{
 		Type:        EventCheckpoint,
 		OccurredAt:  sess.LastActivityAt,
-		Ref:         ref,
+		Ref:         sess.CheckpointRef,
 		Description: strings.TrimSpace(description),
 		Provenance:  prov,
-	})
-	if err := s.persistLocked(); err != nil {
+	}); err != nil {
 		return Session{}, err
 	}
 	return cloneSession(*sess), nil
@@ -274,8 +286,7 @@ func (s *Service) Close(sessionID string, prov Provenance) (Session, error) {
 	sess.Status = StatusClosed
 	sess.ClosedAt = now
 	sess.LastActivityAt = now
-	s.appendEventLocked(sess, Event{Type: EventClose, OccurredAt: now, Provenance: prov})
-	if err := s.persistLocked(); err != nil {
+	if err := s.commitEventLocked(sess, Event{Type: EventClose, OccurredAt: now, Provenance: prov}); err != nil {
 		return Session{}, err
 	}
 	return cloneSession(*sess), nil
@@ -291,9 +302,20 @@ func (s *Service) RecordMessage(clientID, threadID string, msg llm.Message, prov
 	cp := msg
 	sess.Messages = append(sess.Messages, cp)
 	sess.LastActivityAt = time.Now().UTC()
-	s.appendEventLocked(sess, Event{Type: EventMessage, OccurredAt: sess.LastActivityAt, Message: &cp, Provenance: prov})
-	s.enforcePolicyLocked(sess, prov)
-	return s.persistLocked()
+	events := []Event{{Type: EventMessage, OccurredAt: sess.LastActivityAt, Message: &cp, Provenance: prov}}
+	events = append(events, s.enforcePolicyLocked(sess, prov)...)
+	return s.commitEventsLocked(sess, events...)
+}
+
+func (s *Service) RecordMessageAsync(clientID, threadID string, msg llm.Message, prov Provenance) error {
+	s.asyncWG.Add(1)
+	select {
+	case s.asyncQueue <- queuedMessage{clientID: clientID, threadID: threadID, msg: msg, prov: prov}:
+		return nil
+	default:
+		s.asyncWG.Done()
+		return ErrAsyncQueueFull
+	}
 }
 
 func (s *Service) Branch(sessionID string, prov Provenance) (Session, error) {
@@ -317,11 +339,11 @@ func (s *Service) Branch(sessionID string, prov Provenance) (Session, error) {
 	child.ThreadID = parent.ThreadID + "#" + branchRef
 	child.NextSeq = 1
 	child.Events = nil
-	s.appendEventLocked(&child, Event{Type: EventBranch, OccurredAt: now, Ref: branchRef, Provenance: prov})
+	if err := s.commitEventLocked(&child, Event{Type: EventBranch, OccurredAt: now, Ref: branchRef, Provenance: prov}); err != nil {
+		return Session{}, err
+	}
 	parent.LastActivityAt = now
-	s.appendEventLocked(parent, Event{Type: EventBranch, OccurredAt: now, Ref: branchRef, Description: child.ID, Provenance: prov})
-	s.sessions[child.ID] = &child
-	if err := s.persistLocked(); err != nil {
+	if err := s.commitEventLocked(parent, Event{Type: EventBranch, OccurredAt: now, Ref: branchRef, Description: child.ID, Provenance: prov}); err != nil {
 		return Session{}, err
 	}
 	return cloneSession(child), nil
@@ -340,11 +362,15 @@ func (s *Service) Commit(sessionID string, changes map[string]string, prov Prove
 	for k, v := range changes {
 		sess.Context[k] = v
 	}
-	ref := "commit-" + uuid.NewString()
-	sess.CommitRef = ref
+	sess.CommitRef = "commit-" + uuid.NewString()
 	sess.LastActivityAt = time.Now().UTC()
-	s.appendEventLocked(sess, Event{Type: EventCommit, OccurredAt: sess.LastActivityAt, Ref: ref, Changes: cloneStringMap(changes), Provenance: prov})
-	if err := s.persistLocked(); err != nil {
+	if err := s.commitEventLocked(sess, Event{
+		Type:       EventCommit,
+		OccurredAt: sess.LastActivityAt,
+		Ref:        sess.CommitRef,
+		Changes:    cloneStringMap(changes),
+		Provenance: prov,
+	}); err != nil {
 		return Session{}, err
 	}
 	return cloneSession(*sess), nil
@@ -368,8 +394,6 @@ func (s *Service) Merge(baseSessionID, branchSessionID string, policy MergePolic
 	if len(conflicts) > 0 && policy == MergeFail {
 		return MergeResult{}, fmt.Errorf("merge conflict: %s", strings.Join(conflicts, ", "))
 	}
-	now := time.Now().UTC()
-	ref := "merge-" + uuid.NewString()
 	if len(conflicts) == 0 || policy == MergeLWW {
 		if base.Context == nil {
 			base.Context = map[string]string{}
@@ -382,12 +406,25 @@ func (s *Service) Merge(baseSessionID, branchSessionID string, policy MergePolic
 		}
 		base.Messages = append(base.Messages, branch.Messages...)
 	}
-	base.MergeRef = ref
-	base.LastActivityAt = now
-	s.appendEventLocked(base, Event{Type: EventMerge, OccurredAt: now, Ref: ref, Conflicts: append([]string(nil), conflicts...), Provenance: prov})
-	branch.LastActivityAt = now
-	s.appendEventLocked(branch, Event{Type: EventMerge, OccurredAt: now, Ref: ref, Conflicts: append([]string(nil), conflicts...), Provenance: prov})
-	if err := s.persistLocked(); err != nil {
+	base.MergeRef = "merge-" + uuid.NewString()
+	base.LastActivityAt = time.Now().UTC()
+	if err := s.commitEventLocked(base, Event{
+		Type:       EventMerge,
+		OccurredAt: base.LastActivityAt,
+		Ref:        base.MergeRef,
+		Conflicts:  append([]string(nil), conflicts...),
+		Provenance: prov,
+	}); err != nil {
+		return MergeResult{}, err
+	}
+	branch.LastActivityAt = base.LastActivityAt
+	if err := s.commitEventLocked(branch, Event{
+		Type:       EventMerge,
+		OccurredAt: branch.LastActivityAt,
+		Ref:        base.MergeRef,
+		Conflicts:  append([]string(nil), conflicts...),
+		Provenance: prov,
+	}); err != nil {
 		return MergeResult{}, err
 	}
 	return MergeResult{Session: cloneSession(*base), Conflicts: conflicts}, nil
@@ -416,11 +453,11 @@ func (s *Service) RestoreMessagesByThread(clientID, threadID string) ([]llm.Mess
 func (s *Service) Replay(sessionID string) ([]Event, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	sess, ok := s.sessions[strings.TrimSpace(sessionID)]
+	events, ok := s.events[strings.TrimSpace(sessionID)]
 	if !ok {
 		return nil, fmt.Errorf("session %q not found", sessionID)
 	}
-	out := append([]Event(nil), sess.Events...)
+	out := append([]Event(nil), events...)
 	slices.SortFunc(out, func(a, b Event) int {
 		switch {
 		case a.Seq < b.Seq:
@@ -434,34 +471,82 @@ func (s *Service) Replay(sessionID string) ([]Event, error) {
 	return out, nil
 }
 
+func (s *Service) runAsyncWriter() {
+	for item := range s.asyncQueue {
+		_ = s.RecordMessage(item.clientID, item.threadID, item.msg, item.prov)
+		s.asyncWG.Done()
+	}
+}
+
 func (s *Service) findOpenLocked(clientID, threadID string) *Session {
+	if id := s.active[threadKey(clientID, threadID)]; id != "" {
+		return s.sessions[id]
+	}
 	for _, sess := range s.sessions {
 		if sess.ClientID == strings.TrimSpace(clientID) && sess.ThreadID == strings.TrimSpace(threadID) && sess.Status == StatusOpen {
+			s.active[threadKey(clientID, threadID)] = sess.ID
 			return sess
 		}
 	}
 	return nil
 }
 
-func (s *Service) appendEventLocked(sess *Session, evt Event) {
-	evt.Seq = sess.NextSeq
-	evt.SessionID = sess.ID
-	sess.NextSeq++
-	sess.Events = append(sess.Events, evt)
+func (s *Service) commitEventLocked(sess *Session, evt Event) error {
+	return s.commitEventsLocked(sess, evt)
 }
 
-func (s *Service) enforcePolicyLocked(sess *Session, prov Provenance) {
+func (s *Service) commitEventsLocked(sess *Session, events ...Event) error {
+	for i := range events {
+		events[i].Seq = sess.NextSeq
+		events[i].SessionID = sess.ID
+		events[i].State = cloneSessionState(sess)
+		sess.NextSeq++
+		s.events[sess.ID] = append(s.events[sess.ID], events[i])
+	}
+	sess.Events = append([]Event(nil), s.events[sess.ID]...)
+	s.sessions[sess.ID] = sess
+	if sess.Status == StatusOpen {
+		s.active[threadKey(sess.ClientID, sess.ThreadID)] = sess.ID
+	} else {
+		delete(s.active, threadKey(sess.ClientID, sess.ThreadID))
+	}
+	if err := appendEventsFile(s.eventsPath, events); err != nil {
+		return err
+	}
+	if shouldSnapshot(events) {
+		if err := saveSnapshotsFile(s.snapshotsPath, s.snapshotMapLocked()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func shouldSnapshot(events []Event) bool {
+	for _, evt := range events {
+		switch evt.Type {
+		case EventOpen, EventCheckpoint, EventClose, EventBranch, EventCommit, EventMerge, EventSummary:
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) snapshotMapLocked() map[string]Session {
+	out := make(map[string]Session, len(s.sessions))
+	for id, sess := range s.sessions {
+		out[id] = cloneSession(*sess)
+	}
+	return out
+}
+
+func (s *Service) enforcePolicyLocked(sess *Session, prov Provenance) []Event {
+	var events []Event
 	maxMessages := sess.HistoryPolicy.RetentionMaxMessages
 	if maxMessages > 0 && len(sess.Messages) > maxMessages {
 		drop := len(sess.Messages) - maxMessages
 		sess.Summary = mergeSummary(sess.Summary, summarizeMessages(sess.Messages[:drop]))
 		sess.Messages = append([]llm.Message(nil), sess.Messages[drop:]...)
-		s.appendEventLocked(sess, Event{
-			Type:       EventSummary,
-			OccurredAt: time.Now().UTC(),
-			Summary:    sess.Summary,
-			Provenance: prov,
-		})
+		events = append(events, Event{Type: EventSummary, OccurredAt: time.Now().UTC(), Summary: sess.Summary, Provenance: prov})
 	}
 	threshold := sess.HistoryPolicy.SummarizationThreshold
 	keep := sess.HistoryPolicy.SummarizationKeepRecent
@@ -469,13 +554,9 @@ func (s *Service) enforcePolicyLocked(sess *Session, prov Provenance) {
 		cut := len(sess.Messages) - keep
 		sess.Summary = mergeSummary(sess.Summary, summarizeMessages(sess.Messages[:cut]))
 		sess.Messages = append([]llm.Message(nil), sess.Messages[cut:]...)
-		s.appendEventLocked(sess, Event{
-			Type:       EventSummary,
-			OccurredAt: time.Now().UTC(),
-			Summary:    sess.Summary,
-			Provenance: prov,
-		})
+		events = append(events, Event{Type: EventSummary, OccurredAt: time.Now().UTC(), Summary: sess.Summary, Provenance: prov})
 	}
+	return events
 }
 
 func buildRestoreMessages(sess *Session) []llm.Message {
@@ -538,43 +619,155 @@ func findConflicts(baseCurrent, baseSnapshot, branchCurrent map[string]string) [
 }
 
 func (s *Service) load() error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(s.eventsPath), 0o755); err != nil {
 		return fmt.Errorf("mkdir session dir: %w", err)
 	}
-	data, err := os.ReadFile(s.path)
+	snapshots, err := loadSnapshotsFile(s.snapshotsPath)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
+		return err
+	}
+	for id, sess := range snapshots {
+		sess.Events = nil
+		cp := cloneSession(sess)
+		s.sessions[id] = &cp
+		if cp.Status == StatusOpen {
+			s.active[threadKey(cp.ClientID, cp.ThreadID)] = cp.ID
 		}
-		return fmt.Errorf("read sessions file: %w", err)
 	}
-	if len(data) == 0 {
-		return nil
+	events, err := loadEventsFile(s.eventsPath)
+	if err != nil {
+		return err
 	}
-	var state diskState
-	if err := json.Unmarshal(data, &state); err != nil {
-		return fmt.Errorf("decode sessions file: %w", err)
-	}
-	if state.Sessions != nil {
-		s.sessions = state.Sessions
+	for _, evt := range events {
+		cp := cloneEvent(evt)
+		s.events[evt.SessionID] = append(s.events[evt.SessionID], cp)
+		if cp.State != nil {
+			sess := cloneSession(*cp.State)
+			sess.Events = append([]Event(nil), s.events[evt.SessionID]...)
+			s.sessions[evt.SessionID] = &sess
+			if sess.Status == StatusOpen {
+				s.active[threadKey(sess.ClientID, sess.ThreadID)] = sess.ID
+			} else {
+				delete(s.active, threadKey(sess.ClientID, sess.ThreadID))
+			}
+		}
 	}
 	return nil
 }
 
-func (s *Service) persistLocked() error {
-	state := diskState{Sessions: s.sessions}
-	payload, err := json.MarshalIndent(state, "", "  ")
+func sessionPaths(path string) (string, string) {
+	if strings.TrimSpace(path) == "" {
+		path = "./.krill/sessions.json"
+	}
+	ext := filepath.Ext(path)
+	base := strings.TrimSuffix(path, ext)
+	if base == "" {
+		base = path
+	}
+	return base + ".events.jsonl", base + ".snapshots.json"
+}
+
+func appendEventsFile(path string, events []Event) error {
+	if len(events) == 0 {
+		return nil
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
-		return fmt.Errorf("encode sessions file: %w", err)
+		return fmt.Errorf("open session events file: %w", err)
 	}
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, payload, 0o600); err != nil {
-		return fmt.Errorf("write temp sessions file: %w", err)
-	}
-	if err := os.Rename(tmp, s.path); err != nil {
-		return fmt.Errorf("replace sessions file: %w", err)
+	defer f.Close()
+	enc := json.NewEncoder(f)
+	for _, evt := range events {
+		if err := enc.Encode(evt); err != nil {
+			return fmt.Errorf("append session event: %w", err)
+		}
 	}
 	return nil
+}
+
+func loadEventsFile(path string) ([]Event, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("open session events file: %w", err)
+	}
+	defer f.Close()
+	var events []Event
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var evt Event
+		if err := json.Unmarshal(line, &evt); err != nil {
+			return nil, fmt.Errorf("decode session event: %w", err)
+		}
+		events = append(events, evt)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("scan session events: %w", err)
+	}
+	return events, nil
+}
+
+func saveSnapshotsFile(path string, snapshots map[string]Session) error {
+	payload, err := json.MarshalIndent(snapshots, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode session snapshots: %w", err)
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, payload, 0o600); err != nil {
+		return fmt.Errorf("write temp session snapshots: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return fmt.Errorf("replace session snapshots: %w", err)
+	}
+	return nil
+}
+
+func loadSnapshotsFile(path string) (map[string]Session, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return map[string]Session{}, nil
+		}
+		return nil, fmt.Errorf("read session snapshots: %w", err)
+	}
+	if len(data) == 0 {
+		return map[string]Session{}, nil
+	}
+	var snapshots map[string]Session
+	if err := json.Unmarshal(data, &snapshots); err != nil {
+		return nil, fmt.Errorf("decode session snapshots: %w", err)
+	}
+	if snapshots == nil {
+		snapshots = map[string]Session{}
+	}
+	return snapshots, nil
+}
+
+func cloneSessionState(in *Session) *Session {
+	if in == nil {
+		return nil
+	}
+	out := cloneSession(*in)
+	out.Events = nil
+	return &out
+}
+
+func cloneEvent(in Event) Event {
+	out := in
+	if in.Message != nil {
+		cp := *in.Message
+		out.Message = &cp
+	}
+	out.Changes = cloneStringMap(in.Changes)
+	out.Conflicts = append([]string(nil), in.Conflicts...)
+	out.State = cloneSessionState(in.State)
+	return out
 }
 
 func cloneSession(in Session) Session {
@@ -595,4 +788,8 @@ func cloneStringMap(in map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+func threadKey(clientID, threadID string) string {
+	return strings.TrimSpace(clientID) + ":" + strings.TrimSpace(threadID)
 }

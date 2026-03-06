@@ -100,9 +100,12 @@ func TestBus_ReplyKeyCustomPrefix(t *testing.T) {
 
 func TestMemory_AppendAndGet(t *testing.T) {
 	m := memory.NewRAM()
-	m.Append("c1", "t1", llm.Message{Role: "user", Content: "hello"})
-	m.Append("c1", "t1", llm.Message{Role: "assistant", Content: "hi"})
-	msgs := m.Get("c1", "t1", 100)
+	_ = m.Append("c1", "t1", llm.Message{Role: "user", Content: "hello"})
+	_ = m.Append("c1", "t1", llm.Message{Role: "assistant", Content: "hi"})
+	msgs, err := m.Get("c1", "t1", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(msgs) != 2 {
 		t.Fatalf("expected 2 messages, got %d", len(msgs))
 	}
@@ -111,9 +114,12 @@ func TestMemory_AppendAndGet(t *testing.T) {
 func TestMemory_WindowTruncation(t *testing.T) {
 	m := memory.NewRAM()
 	for i := 0; i < 50; i++ {
-		m.Append("c1", "t1", llm.Message{Role: "user", Content: "msg"})
+		_ = m.Append("c1", "t1", llm.Message{Role: "user", Content: "msg"})
 	}
-	msgs := m.Get("c1", "t1", 10)
+	msgs, err := m.Get("c1", "t1", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(msgs) != 10 {
 		t.Fatalf("expected 10 windowed messages, got %d", len(msgs))
 	}
@@ -121,10 +127,16 @@ func TestMemory_WindowTruncation(t *testing.T) {
 
 func TestMemory_ThreadIsolation(t *testing.T) {
 	m := memory.NewRAM()
-	m.Append("alice", "t1", llm.Message{Role: "user", Content: "alice msg"})
-	m.Append("bob", "t1", llm.Message{Role: "user", Content: "bob msg"})
-	alice := m.Get("alice", "t1", 100)
-	bob := m.Get("bob", "t1", 100)
+	_ = m.Append("alice", "t1", llm.Message{Role: "user", Content: "alice msg"})
+	_ = m.Append("bob", "t1", llm.Message{Role: "user", Content: "bob msg"})
+	alice, err := m.Get("alice", "t1", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bob, err := m.Get("bob", "t1", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(alice) != 1 || alice[0].Content != "alice msg" {
 		t.Fatal("alice's history wrong")
 	}
@@ -135,9 +147,12 @@ func TestMemory_ThreadIsolation(t *testing.T) {
 
 func TestMemory_Clear(t *testing.T) {
 	m := memory.NewRAM()
-	m.Append("c1", "t1", llm.Message{Role: "user", Content: "hi"})
-	m.Clear("c1", "t1")
-	msgs := m.Get("c1", "t1", 100)
+	_ = m.Append("c1", "t1", llm.Message{Role: "user", Content: "hi"})
+	_ = m.Clear("c1", "t1")
+	msgs, err := m.Get("c1", "t1", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(msgs) != 0 {
 		t.Fatal("expected empty after clear")
 	}
@@ -317,7 +332,7 @@ func TestMemory_ConcurrentAppend(t *testing.T) {
 	done := make(chan struct{}, 100)
 	for i := 0; i < 100; i++ {
 		go func() {
-			m.Append("c1", "t1", llm.Message{Role: "user", Content: "msg"})
+			_ = m.Append("c1", "t1", llm.Message{Role: "user", Content: "msg"})
 			done <- struct{}{}
 		}()
 	}

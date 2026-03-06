@@ -1,4 +1,4 @@
-// Package agent — per-client ReAct agent loop with progressive skill loading.
+// Package agent executes ReAct turns for a single thread.
 //
 // ReAct cycle:
 //  1. User message arrives via Deliver()
@@ -88,6 +88,9 @@ func New(
 
 // Deliver enqueues an inbound user envelope.
 func (l *Loop) Deliver(env *bus.Envelope) {
+	if env == nil {
+		return
+	}
 	// Capture routing info from first message
 	if l.clientID == "" {
 		l.clientID = env.ClientID
@@ -114,6 +117,9 @@ func (l *Loop) Run(ctx context.Context) {
 			l.log.Info("agent loop idle timeout", "client", l.clientID)
 			return
 		case env := <-l.inbox:
+			if env == nil {
+				continue
+			}
 			idle.Reset(idleTimeout)
 			// Update routing info (protocol may change across messages)
 			l.protocol = env.SourceProtocol
@@ -151,10 +157,12 @@ func (l *Loop) react(ctx context.Context, userEnv *bus.Envelope) {
 	)
 
 	// Store user message in memory
-	l.mem.Append(l.clientID, l.threadID, llm.Message{
+	if err := l.mem.Append(l.clientID, l.threadID, llm.Message{
 		Role:    "user",
 		Content: userEnv.Text,
-	})
+	}); err != nil {
+		l.log.Warn("memory append failed", "client", l.clientID, "thread", l.threadID, "err", err)
+	}
 
 	maxTurns := l.cfg.MaxTurns
 	if maxTurns == 0 {
@@ -175,7 +183,11 @@ func (l *Loop) react(ctx context.Context, userEnv *bus.Envelope) {
 			"llm", l.cfg.LLM,
 		)
 		// Build request with WINDOWED history and ACTIVE tool defs
-		history := l.mem.Get(l.clientID, l.threadID, l.memWindow)
+		history, err := l.mem.Get(l.clientID, l.threadID, l.memWindow)
+		if err != nil {
+			l.log.Warn("memory get failed", "client", l.clientID, "thread", l.threadID, "err", err)
+			history = nil
+		}
 		req := llm.Request{
 			ModelName:    l.cfg.LLM,
 			SystemPrompt: l.buildSystemPrompt(),
@@ -213,7 +225,9 @@ func (l *Loop) react(ctx context.Context, userEnv *bus.Envelope) {
 		)
 
 		// Store assistant message (with tool_calls if any)
-		l.mem.Append(l.clientID, l.threadID, resp.Message)
+		if err := l.mem.Append(l.clientID, l.threadID, resp.Message); err != nil {
+			l.log.Warn("memory append failed", "client", l.clientID, "thread", l.threadID, "err", err)
+		}
 
 		if len(resp.ToolCalls) == 0 {
 			// Final text response — send to user
@@ -267,11 +281,13 @@ func (l *Loop) react(ctx context.Context, userEnv *bus.Envelope) {
 			}
 
 			// Append tool result to memory
-			l.mem.Append(l.clientID, l.threadID, llm.Message{
+			if err := l.mem.Append(l.clientID, l.threadID, llm.Message{
 				Role:       "tool",
 				Content:    result,
 				ToolCallID: tc.ID,
-			})
+			}); err != nil {
+				l.log.Warn("memory append failed", "client", l.clientID, "thread", l.threadID, "err", err)
+			}
 		}
 		turnSpan.End(nil,
 			"request_id", requestID,
@@ -284,6 +300,21 @@ func (l *Loop) react(ctx context.Context, userEnv *bus.Envelope) {
 
 	// Max turns reached
 	l.reply(ctx, "I've reached the maximum reasoning steps. Please simplify your request.", tokens)
+}
+
+// RunOnce executes one inbound message without a dedicated idle loop goroutine.
+func (l *Loop) RunOnce(ctx context.Context, env *bus.Envelope) {
+	if env == nil {
+		return
+	}
+	if l.clientID == "" {
+		l.clientID = env.ClientID
+	}
+	if env.ThreadID != "" {
+		l.threadID = env.ThreadID
+	}
+	l.protocol = env.SourceProtocol
+	l.react(ctx, env)
 }
 
 // reply publishes an assistant reply to the correct protocol reply channel.

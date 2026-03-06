@@ -28,6 +28,7 @@ func TestHandle_NonRegressionFlow(t *testing.T) {
 	b := bus.NewLocal(8)
 	p.b = b
 	p.log = slog.Default()
+	inbound := b.Subscribe(bus.InboundKey)
 
 	req := httptest.NewRequest("POST", "/webhook", strings.NewReader(`{"user":{"id":"u-1"},"text":"hello-webhook"}`))
 	w := httptest.NewRecorder()
@@ -38,7 +39,7 @@ func TestHandle_NonRegressionFlow(t *testing.T) {
 	}
 
 	select {
-	case env := <-b.Subscribe(bus.InboundKey):
+	case env := <-inbound:
 		if env.SourceProtocol != "webhook" || env.ClientID != "u-1" || env.Text != "hello-webhook" {
 			t.Fatalf("unexpected env: %+v", env)
 		}

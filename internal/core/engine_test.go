@@ -280,3 +280,48 @@ func TestRun_StartsScheduler(t *testing.T) {
 		t.Fatal("expected scheduler to emit audit entries during run")
 	}
 }
+
+func TestRun_WithSessionsEnabledShutsDownCleanly(t *testing.T) {
+	cfg := &config.Root{
+		Core: config.CoreConfig{
+			BusBuffer:      8,
+			MaxClients:     2,
+			SandboxType:    "exec",
+			ReplyBusPrefix: "__reply__",
+			SkillTimeoutMs: 1000,
+			MemoryWindow:   10,
+			MemoryBackend:  "ram",
+		},
+		Sessions: config.SessionConfig{
+			Enabled:                  true,
+			Path:                     filepath.Join(t.TempDir(), "sessions.json"),
+			RetentionMaxMessages:     5,
+			SummarizationThreshold:   0,
+			SummarizationKeepRecent:  0,
+			DefaultMergeConflictMode: "last-write-wins",
+		},
+		LLM: config.LLMPool{
+			Default: "mock",
+			Backends: []config.LLMConfig{
+				{Name: "mock", BaseURL: "https://example.test", APIKey: "test", Model: "test", MaxTokens: 128},
+			},
+		},
+	}
+	e, err := New(cfg, slog.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- e.Run(ctx) }()
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("engine run did not stop")
+	}
+}

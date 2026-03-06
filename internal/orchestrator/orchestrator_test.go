@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/krill/krill/config"
-	"github.com/krill/krill/internal/agent"
 	"github.com/krill/krill/internal/bus"
 	"github.com/krill/krill/internal/llm"
 	"github.com/krill/krill/internal/memory"
@@ -117,7 +116,10 @@ func TestRestoreSessionContextHydratesMemoryAndOpensPersistent(t *testing.T) {
 		Meta:      map[string]string{"session_mode": "persistent", "tenant": "tenant-a"},
 		CreatedAt: time.Now().UTC(),
 	})
-	msgs := baseMem.Get("c1", "t1", 10)
+	msgs, err := baseMem.Get("c1", "t1", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(msgs) != 1 || msgs[0].Content != "persisted" {
 		t.Fatalf("expected session hydration into memory, got %+v", msgs)
 	}
@@ -174,9 +176,9 @@ func TestRestoreSessionContextSkipsEphemeralOpenAndHelpers(t *testing.T) {
 
 func TestDispatchSkipsNonUserAndStopsOnClosedChannel(t *testing.T) {
 	orch := &Orch{
-		log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
-		loops: map[string]*agent.Loop{},
-		sem:   make(chan struct{}, 1),
+		log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		threads: map[string]*threadState{},
+		sem:     make(chan struct{}, 1),
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -192,9 +194,10 @@ func TestRouteMaxClientsReachedBranch(t *testing.T) {
 		cfg: &config.Root{
 			LLM: config.LLMPool{Default: "d"},
 		},
-		log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
-		loops: map[string]*agent.Loop{},
-		sem:   make(chan struct{}, 1),
+		log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		threads: map[string]*threadState{},
+		sem:     make(chan struct{}, 1),
+		work:    make(chan string, 1),
 	}
 	orch.sem <- struct{}{} // saturate semaphore
 	env := &bus.Envelope{

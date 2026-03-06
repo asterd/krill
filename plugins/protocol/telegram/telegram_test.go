@@ -184,6 +184,7 @@ func TestRelay_FallbackChatIDFromClientID(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go p.relay(ctx)
+	time.Sleep(10 * time.Millisecond)
 	_ = p.b.Publish(context.Background(), bus.ReplyKey("telegram"), &bus.Envelope{
 		ID:             "r1",
 		ClientID:       "tg:777",
@@ -239,6 +240,7 @@ func TestRelay_IgnoresNonAssistantAndMissingChat(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go p.relay(ctx)
+	time.Sleep(10 * time.Millisecond)
 	_ = p.b.Publish(context.Background(), bus.ReplyKey("telegram"), &bus.Envelope{
 		ID:        "1",
 		ClientID:  "x",

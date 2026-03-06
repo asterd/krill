@@ -15,3 +15,9 @@ L'utente può chiedere o con api o in modalità conversazionale l'esecuzione sch
 
 # 4. A2UI
 L'utente può sviluppare un'app che si interfaccia con agenti, funzionalità varie, etc, generando l'interfaccia tramite protocollo A2UI.
+
+# 5. Orchestrazione multi-agent autonoma
+L'utente può programmare una verticalizzazione di agenti con compiti specifici che possa interoperare autonomamente tra di loro per raggiungere un obiettivo. Esempio se volessi fare un e-commerce che si gestisce da solo, potrei skillare N agenti ognuno con alcune caratteristiche e questi potrebbero cooperare tra di loro per manutenere ed evolvere l'e-commerce, avendo però cura di chiedere all'utente tramite canali chat notificati come intervenire o se fornire dati aggiuntivi. 
+
+# 6. Creazione asset operativi
+L'utente può richiedere la creazione di un'applicativo web ed il suo hosting su servizi terzi specificati in skill per una fruizione istantanea

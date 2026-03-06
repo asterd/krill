@@ -35,6 +35,7 @@ func TestA2AHandleEnvelopeStrictValidationAndMetadata(t *testing.T) {
 	b := bus.NewLocal(4)
 	p.b = b
 	p.log = slog.New(slog.NewTextHandler(io.Discard, nil))
+	inbound := b.Subscribe(bus.InboundKey)
 
 	badReq, _ := http.NewRequest(http.MethodPost, p.path, bytes.NewBufferString(`{"schema_version":"v2"}`))
 	badRec := newRecorder()
@@ -70,7 +71,7 @@ func TestA2AHandleEnvelopeStrictValidationAndMetadata(t *testing.T) {
 	}
 
 	select {
-	case env := <-b.Subscribe(bus.InboundKey):
+	case env := <-inbound:
 		if env.SourceProtocol != "a2a" {
 			t.Fatalf("unexpected source protocol: %s", env.SourceProtocol)
 		}
@@ -93,6 +94,7 @@ func TestA2AHandleEnvelopeMethodAndHeaderFallback(t *testing.T) {
 	b := bus.NewLocal(4)
 	p.b = b
 	p.log = slog.New(slog.NewTextHandler(io.Discard, nil))
+	inbound := b.Subscribe(bus.InboundKey)
 
 	req, _ := http.NewRequest(http.MethodGet, p.path, nil)
 	rec := newRecorder()
@@ -124,7 +126,7 @@ func TestA2AHandleEnvelopeMethodAndHeaderFallback(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rec2.code)
 	}
 	select {
-	case env := <-b.Subscribe(bus.InboundKey):
+	case env := <-inbound:
 		if env.Meta["origin_agent"] != "r1" || env.Meta["target_agent"] != "s1" || env.Meta["handoff_reason"] != "fallback" {
 			t.Fatalf("expected header fallback handoff metadata, got %+v", env.Meta)
 		}

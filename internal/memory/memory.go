@@ -1,9 +1,4 @@
-// Package memory — per-thread conversation history management.
-//
-// Provides:
-//   - In-RAM ring buffer (configurable window size)
-//   - Thread isolation: each clientID+threadID has its own history
-//   - Store interface for swapping in persistent backends (sqlite, redis, etc.)
+// Package memory manages hot conversation buffers and optional durable history backends.
 package memory
 
 import (
@@ -20,15 +15,21 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// Store is the persistence interface.
-// The default implementation is sqlite on local disk; RAM/file remain available.
+// Snapshot is a restorable thread buffer image.
+type Snapshot struct {
+	Messages  []llm.Message `json:"messages"`
+	UpdatedAt time.Time     `json:"updated_at"`
+}
+
+// Store is the conversation history contract used by the runtime kernel.
 type Store interface {
-	// Append adds a message to the thread history.
-	Append(clientID, threadID string, msg llm.Message)
-	// Get returns the last `window` messages for a thread.
-	Get(clientID, threadID string, window int) []llm.Message
-	// Clear wipes a thread's history.
-	Clear(clientID, threadID string)
+	Append(clientID, threadID string, msg llm.Message) error
+	AppendBatch(clientID, threadID string, msgs []llm.Message) error
+	Get(clientID, threadID string, window int) ([]llm.Message, error)
+	Snapshot(clientID, threadID string) (Snapshot, error)
+	Restore(clientID, threadID string, snapshot Snapshot) error
+	Trim(clientID, threadID string, keep int) error
+	Clear(clientID, threadID string) error
 }
 
 // NewStore creates the configured memory backend.
@@ -45,16 +46,16 @@ func NewStore(backend, path string) (Store, error) {
 	}
 }
 
-// ─── In-RAM store ─────────────────────────────────────────────────────────────
-
 type thread struct {
 	msgs      []llm.Message
 	updatedAt time.Time
 }
 
+func key(clientID, threadID string) string { return clientID + ":" + threadID }
+
 type ramStore struct {
 	mu      sync.RWMutex
-	threads map[string]*thread // key: clientID+":"+threadID
+	threads map[string]*thread
 }
 
 // NewRAM creates a non-persistent in-memory history store.
@@ -62,11 +63,14 @@ func NewRAM() Store {
 	return &ramStore{threads: make(map[string]*thread)}
 }
 
-func key(clientID, threadID string) string { return clientID + ":" + threadID }
+func (s *ramStore) Append(clientID, threadID string, msg llm.Message) error {
+	return s.AppendBatch(clientID, threadID, []llm.Message{msg})
+}
 
-func (s *ramStore) Append(clientID, threadID string, msg llm.Message) {
-	span := telemetry.StartSpan(nil, "", "", "memory.append", "backend", "ram")
-	defer span.End(nil, "backend", "ram")
+func (s *ramStore) AppendBatch(clientID, threadID string, msgs []llm.Message) error {
+	if len(msgs) == 0 {
+		return nil
+	}
 	k := key(clientID, threadID)
 	s.mu.Lock()
 	t, ok := s.threads[k]
@@ -74,50 +78,89 @@ func (s *ramStore) Append(clientID, threadID string, msg llm.Message) {
 		t = &thread{}
 		s.threads[k] = t
 	}
-	t.msgs = append(t.msgs, msg)
-	t.updatedAt = time.Now()
-	size := estimateMessageBytes(msg)
-	telemetry.IncCounter(telemetry.MetricMemoryOpsTotal, 1, map[string]string{"op": "append", "backend": "ram"})
-	telemetry.SetGauge(telemetry.MetricMemoryBytes, int64(size), map[string]string{"backend": "ram"})
+	t.msgs = append(t.msgs, cloneMessages(msgs)...)
+	t.updatedAt = time.Now().UTC()
+	size := 0
+	for _, msg := range msgs {
+		size += estimateMessageBytes(msg)
+	}
 	s.mu.Unlock()
+	telemetry.IncCounter(telemetry.MetricMemoryOpsTotal, 1, map[string]string{"op": "append_batch", "backend": "ram"})
+	telemetry.SetGauge(telemetry.MetricMemoryBytes, int64(size), map[string]string{"backend": "ram"})
+	return nil
 }
 
-func (s *ramStore) Get(clientID, threadID string, window int) []llm.Message {
-	span := telemetry.StartSpan(nil, "", "", "memory.get", "backend", "ram")
-	defer span.End(nil, "backend", "ram")
-	k := key(clientID, threadID)
+func (s *ramStore) Get(clientID, threadID string, window int) ([]llm.Message, error) {
 	s.mu.RLock()
-	t, ok := s.threads[k]
-	s.mu.RUnlock()
+	t, ok := s.threads[key(clientID, threadID)]
 	if !ok {
-		return nil
+		s.mu.RUnlock()
+		return nil, nil
 	}
-	s.mu.RLock()
-	msgs := append([]llm.Message(nil), t.msgs...)
+	msgs := cloneMessages(t.msgs)
 	s.mu.RUnlock()
 	if window > 0 && len(msgs) > window {
-		telemetry.IncCounter(telemetry.MetricMemoryOpsTotal, 1, map[string]string{"op": "get", "backend": "ram"})
-		return msgs[len(msgs)-window:]
+		msgs = msgs[len(msgs)-window:]
 	}
 	telemetry.IncCounter(telemetry.MetricMemoryOpsTotal, 1, map[string]string{"op": "get", "backend": "ram"})
-	return msgs
+	return msgs, nil
 }
 
-func (s *ramStore) Clear(clientID, threadID string) {
-	span := telemetry.StartSpan(nil, "", "", "memory.clear", "backend", "ram")
-	defer span.End(nil, "backend", "ram")
+func (s *ramStore) Snapshot(clientID, threadID string) (Snapshot, error) {
+	s.mu.RLock()
+	t, ok := s.threads[key(clientID, threadID)]
+	if !ok {
+		s.mu.RUnlock()
+		return Snapshot{}, nil
+	}
+	snap := Snapshot{Messages: cloneMessages(t.msgs), UpdatedAt: t.updatedAt}
+	s.mu.RUnlock()
+	return snap, nil
+}
+
+func (s *ramStore) Restore(clientID, threadID string, snapshot Snapshot) error {
+	s.mu.Lock()
+	s.threads[key(clientID, threadID)] = &thread{
+		msgs:      cloneMessages(snapshot.Messages),
+		updatedAt: snapshot.UpdatedAt,
+	}
+	s.mu.Unlock()
+	telemetry.IncCounter(telemetry.MetricMemoryOpsTotal, 1, map[string]string{"op": "restore", "backend": "ram"})
+	return nil
+}
+
+func (s *ramStore) Trim(clientID, threadID string, keep int) error {
+	if keep < 0 {
+		return fmt.Errorf("keep must be >= 0")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.threads[key(clientID, threadID)]
+	if !ok || len(t.msgs) <= keep || keep == 0 && len(t.msgs) == 0 {
+		return nil
+	}
+	if keep == 0 {
+		t.msgs = nil
+	} else {
+		t.msgs = append([]llm.Message(nil), t.msgs[len(t.msgs)-keep:]...)
+	}
+	t.updatedAt = time.Now().UTC()
+	telemetry.IncCounter(telemetry.MetricMemoryOpsTotal, 1, map[string]string{"op": "trim", "backend": "ram"})
+	return nil
+}
+
+func (s *ramStore) Clear(clientID, threadID string) error {
 	s.mu.Lock()
 	delete(s.threads, key(clientID, threadID))
 	s.mu.Unlock()
 	telemetry.IncCounter(telemetry.MetricMemoryOpsTotal, 1, map[string]string{"op": "clear", "backend": "ram"})
+	return nil
 }
-
-// ─── File-backed store (durable across process restarts) ────────────────────
 
 type fileStore struct {
 	mu   sync.RWMutex
 	path string
-	data map[string][]llm.Message
+	data map[string]Snapshot
 }
 
 // NewFile creates a JSON file-backed history store.
@@ -128,47 +171,99 @@ func NewFile(path string) (Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("mkdir memory dir: %w", err)
 	}
-	s := &fileStore{path: path, data: map[string][]llm.Message{}}
+	s := &fileStore{path: path, data: map[string]Snapshot{}}
 	if err := s.load(); err != nil {
 		return nil, err
 	}
 	return s, nil
 }
 
-func (s *fileStore) Append(clientID, threadID string, msg llm.Message) {
-	span := telemetry.StartSpan(nil, "", "", "memory.append", "backend", "file")
-	defer span.End(nil, "backend", "file")
+func (s *fileStore) Append(clientID, threadID string, msg llm.Message) error {
+	return s.AppendBatch(clientID, threadID, []llm.Message{msg})
+}
+
+func (s *fileStore) AppendBatch(clientID, threadID string, msgs []llm.Message) error {
+	if len(msgs) == 0 {
+		return nil
+	}
 	s.mu.Lock()
 	k := key(clientID, threadID)
-	s.data[k] = append(s.data[k], msg)
-	_ = s.persistLocked()
-	telemetry.IncCounter(telemetry.MetricMemoryOpsTotal, 1, map[string]string{"op": "append", "backend": "file"})
-	telemetry.SetGauge(telemetry.MetricMemoryBytes, int64(estimateMessageBytes(msg)), map[string]string{"backend": "file"})
+	snap := s.data[k]
+	snap.Messages = append(snap.Messages, cloneMessages(msgs)...)
+	snap.UpdatedAt = time.Now().UTC()
+	s.data[k] = snap
+	err := s.persistLocked()
 	s.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	telemetry.IncCounter(telemetry.MetricMemoryOpsTotal, 1, map[string]string{"op": "append_batch", "backend": "file"})
+	return nil
 }
 
-func (s *fileStore) Get(clientID, threadID string, window int) []llm.Message {
-	span := telemetry.StartSpan(nil, "", "", "memory.get", "backend", "file")
-	defer span.End(nil, "backend", "file")
+func (s *fileStore) Get(clientID, threadID string, window int) ([]llm.Message, error) {
 	s.mu.RLock()
-	msgs := append([]llm.Message(nil), s.data[key(clientID, threadID)]...)
+	msgs := cloneMessages(s.data[key(clientID, threadID)].Messages)
 	s.mu.RUnlock()
 	if window > 0 && len(msgs) > window {
-		telemetry.IncCounter(telemetry.MetricMemoryOpsTotal, 1, map[string]string{"op": "get", "backend": "file"})
-		return msgs[len(msgs)-window:]
+		msgs = msgs[len(msgs)-window:]
 	}
 	telemetry.IncCounter(telemetry.MetricMemoryOpsTotal, 1, map[string]string{"op": "get", "backend": "file"})
-	return msgs
+	return msgs, nil
 }
 
-func (s *fileStore) Clear(clientID, threadID string) {
-	span := telemetry.StartSpan(nil, "", "", "memory.clear", "backend", "file")
-	defer span.End(nil, "backend", "file")
+func (s *fileStore) Snapshot(clientID, threadID string) (Snapshot, error) {
+	s.mu.RLock()
+	snap := cloneSnapshot(s.data[key(clientID, threadID)])
+	s.mu.RUnlock()
+	return snap, nil
+}
+
+func (s *fileStore) Restore(clientID, threadID string, snapshot Snapshot) error {
+	s.mu.Lock()
+	s.data[key(clientID, threadID)] = cloneSnapshot(snapshot)
+	err := s.persistLocked()
+	s.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	telemetry.IncCounter(telemetry.MetricMemoryOpsTotal, 1, map[string]string{"op": "restore", "backend": "file"})
+	return nil
+}
+
+func (s *fileStore) Trim(clientID, threadID string, keep int) error {
+	if keep < 0 {
+		return fmt.Errorf("keep must be >= 0")
+	}
+	s.mu.Lock()
+	k := key(clientID, threadID)
+	snap := s.data[k]
+	if keep == 0 {
+		snap.Messages = nil
+	} else if len(snap.Messages) > keep {
+		snap.Messages = append([]llm.Message(nil), snap.Messages[len(snap.Messages)-keep:]...)
+	}
+	snap.UpdatedAt = time.Now().UTC()
+	s.data[k] = snap
+	err := s.persistLocked()
+	s.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	telemetry.IncCounter(telemetry.MetricMemoryOpsTotal, 1, map[string]string{"op": "trim", "backend": "file"})
+	return nil
+}
+
+func (s *fileStore) Clear(clientID, threadID string) error {
 	s.mu.Lock()
 	delete(s.data, key(clientID, threadID))
-	_ = s.persistLocked()
+	err := s.persistLocked()
 	s.mu.Unlock()
+	if err != nil {
+		return err
+	}
 	telemetry.IncCounter(telemetry.MetricMemoryOpsTotal, 1, map[string]string{"op": "clear", "backend": "file"})
+	return nil
 }
 
 func (s *fileStore) load() error {
@@ -182,13 +277,13 @@ func (s *fileStore) load() error {
 	if len(data) == 0 {
 		return nil
 	}
-	var decoded map[string][]llm.Message
+	var decoded map[string]Snapshot
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return fmt.Errorf("decode memory file: %w", err)
 	}
 	s.data = decoded
 	if s.data == nil {
-		s.data = map[string][]llm.Message{}
+		s.data = map[string]Snapshot{}
 	}
 	return nil
 }
@@ -207,8 +302,6 @@ func (s *fileStore) persistLocked() error {
 	}
 	return nil
 }
-
-// ─── SQLite-backed store (durable and lightweight) ──────────────────────────
 
 type sqliteStore struct {
 	db *sql.DB
@@ -251,24 +344,42 @@ CREATE INDEX IF NOT EXISTS idx_memory_thread_seq ON memory_messages(client_id, t
 	return &sqliteStore{db: db}, nil
 }
 
-func (s *sqliteStore) Append(clientID, threadID string, msg llm.Message) {
-	span := telemetry.StartSpan(nil, "", "", "memory.append", "backend", "sqlite")
-	defer span.End(nil, "backend", "sqlite")
-	toolCalls, err := json.Marshal(msg.ToolCalls)
-	if err != nil {
-		toolCalls = []byte("[]")
-	}
-	_, _ = s.db.Exec(
-		`INSERT INTO memory_messages (client_id, thread_id, role, content, tool_calls_json, tool_call_id) VALUES (?, ?, ?, ?, ?, ?)`,
-		clientID, threadID, msg.Role, msg.Content, string(toolCalls), msg.ToolCallID,
-	)
-	telemetry.IncCounter(telemetry.MetricMemoryOpsTotal, 1, map[string]string{"op": "append", "backend": "sqlite"})
-	telemetry.SetGauge(telemetry.MetricMemoryBytes, int64(estimateMessageBytes(msg)), map[string]string{"backend": "sqlite"})
+func (s *sqliteStore) Append(clientID, threadID string, msg llm.Message) error {
+	return s.AppendBatch(clientID, threadID, []llm.Message{msg})
 }
 
-func (s *sqliteStore) Get(clientID, threadID string, window int) []llm.Message {
-	span := telemetry.StartSpan(nil, "", "", "memory.get", "backend", "sqlite")
-	defer span.End(nil, "backend", "sqlite")
+func (s *sqliteStore) AppendBatch(clientID, threadID string, msgs []llm.Message) error {
+	if len(msgs) == 0 {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin sqlite append: %w", err)
+	}
+	stmt, err := tx.Prepare(`INSERT INTO memory_messages (client_id, thread_id, role, content, tool_calls_json, tool_call_id) VALUES (?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("prepare sqlite append: %w", err)
+	}
+	defer stmt.Close()
+	for _, msg := range msgs {
+		toolCalls, err := json.Marshal(msg.ToolCalls)
+		if err != nil {
+			toolCalls = []byte("[]")
+		}
+		if _, err := stmt.Exec(clientID, threadID, msg.Role, msg.Content, string(toolCalls), msg.ToolCallID); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("exec sqlite append: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit sqlite append: %w", err)
+	}
+	telemetry.IncCounter(telemetry.MetricMemoryOpsTotal, 1, map[string]string{"op": "append_batch", "backend": "sqlite"})
+	return nil
+}
+
+func (s *sqliteStore) Get(clientID, threadID string, window int) ([]llm.Message, error) {
 	limit := window
 	if limit <= 0 {
 		limit = 1000000
@@ -281,7 +392,7 @@ func (s *sqliteStore) Get(clientID, threadID string, window int) []llm.Message {
 		clientID, threadID, limit,
 	)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("query sqlite get: %w", err)
 	}
 	defer rows.Close()
 
@@ -292,7 +403,7 @@ func (s *sqliteStore) Get(clientID, threadID string, window int) []llm.Message {
 			msg                                      llm.Message
 		)
 		if err := rows.Scan(&role, &content, &toolCallsJSON, &toolCallID); err != nil {
-			continue
+			return nil, fmt.Errorf("scan sqlite get: %w", err)
 		}
 		msg.Role = role
 		msg.Content = content
@@ -305,14 +416,54 @@ func (s *sqliteStore) Get(clientID, threadID string, window int) []llm.Message {
 		msgs = append(msgs, reversed[i])
 	}
 	telemetry.IncCounter(telemetry.MetricMemoryOpsTotal, 1, map[string]string{"op": "get", "backend": "sqlite"})
-	return msgs
+	return msgs, nil
 }
 
-func (s *sqliteStore) Clear(clientID, threadID string) {
-	span := telemetry.StartSpan(nil, "", "", "memory.clear", "backend", "sqlite")
-	defer span.End(nil, "backend", "sqlite")
-	_, _ = s.db.Exec(`DELETE FROM memory_messages WHERE client_id = ? AND thread_id = ?`, clientID, threadID)
+func (s *sqliteStore) Snapshot(clientID, threadID string) (Snapshot, error) {
+	msgs, err := s.Get(clientID, threadID, 0)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	return Snapshot{Messages: msgs, UpdatedAt: time.Now().UTC()}, nil
+}
+
+func (s *sqliteStore) Restore(clientID, threadID string, snapshot Snapshot) error {
+	if err := s.Clear(clientID, threadID); err != nil {
+		return err
+	}
+	return s.AppendBatch(clientID, threadID, snapshot.Messages)
+}
+
+func (s *sqliteStore) Trim(clientID, threadID string, keep int) error {
+	if keep < 0 {
+		return fmt.Errorf("keep must be >= 0")
+	}
+	if keep == 0 {
+		return s.Clear(clientID, threadID)
+	}
+	_, err := s.db.Exec(
+		`DELETE FROM memory_messages
+		  WHERE client_id = ? AND thread_id = ? AND seq NOT IN (
+		    SELECT seq FROM memory_messages
+		     WHERE client_id = ? AND thread_id = ?
+		     ORDER BY seq DESC
+		     LIMIT ?
+		  )`,
+		clientID, threadID, clientID, threadID, keep,
+	)
+	if err != nil {
+		return fmt.Errorf("trim sqlite messages: %w", err)
+	}
+	telemetry.IncCounter(telemetry.MetricMemoryOpsTotal, 1, map[string]string{"op": "trim", "backend": "sqlite"})
+	return nil
+}
+
+func (s *sqliteStore) Clear(clientID, threadID string) error {
+	if _, err := s.db.Exec(`DELETE FROM memory_messages WHERE client_id = ? AND thread_id = ?`, clientID, threadID); err != nil {
+		return fmt.Errorf("clear sqlite messages: %w", err)
+	}
 	telemetry.IncCounter(telemetry.MetricMemoryOpsTotal, 1, map[string]string{"op": "clear", "backend": "sqlite"})
+	return nil
 }
 
 func (s *sqliteStore) Close() error {
@@ -320,6 +471,19 @@ func (s *sqliteStore) Close() error {
 		return nil
 	}
 	return s.db.Close()
+}
+
+func cloneMessages(in []llm.Message) []llm.Message {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]llm.Message, len(in))
+	copy(out, in)
+	return out
+}
+
+func cloneSnapshot(in Snapshot) Snapshot {
+	return Snapshot{Messages: cloneMessages(in.Messages), UpdatedAt: in.UpdatedAt}
 }
 
 func estimateMessageBytes(msg llm.Message) int {

@@ -131,7 +131,7 @@ func (o *Orch) executeCooperative(ctx context.Context, env *bus.Envelope, wf con
 				OccurredAt:  time.Now().UTC(),
 			}
 			state.HandoffChain = append(state.HandoffChain, event)
-			o.mem.Append(env.ClientID, env.ThreadID, llm.Message{Role: "system", Content: fmt.Sprintf("handoff %s -> %s (%s)", event.OriginAgent, event.TargetAgent, event.Reason)})
+			_ = o.mem.Append(env.ClientID, env.ThreadID, llm.Message{Role: "system", Content: fmt.Sprintf("handoff %s -> %s (%s)", event.OriginAgent, event.TargetAgent, event.Reason)})
 			telemetry.IncCounter(telemetry.MetricAgentHandoffTotal, 1, map[string]string{"workflow": wf.ID})
 		}
 
@@ -217,7 +217,7 @@ func (o *Orch) runCooperativeStep(
 	if strings.TrimSpace(resp.Content) == "" {
 		return "", llm.Usage{}, span.SpanID(), fmt.Errorf("empty cooperative response from agent %s", role.Agent)
 	}
-	o.mem.Append(role.Agent, wf.ID, llm.Message{Role: "assistant", Content: resp.Content})
+	_ = o.mem.Append(role.Agent, wf.ID, llm.Message{Role: "assistant", Content: resp.Content})
 	return resp.Content, resp.Usage, span.SpanID(), nil
 }
 

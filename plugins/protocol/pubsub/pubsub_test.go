@@ -328,7 +328,7 @@ func TestIntegration_RestartRecoveryWithPersistentMemory(t *testing.T) {
 				case <-ctx.Done():
 					return
 				case env := <-in:
-					store.Append(env.ClientID, env.ThreadID, llm.Message{Role: "user", Content: env.Text})
+					_ = store.Append(env.ClientID, env.ThreadID, llm.Message{Role: "user", Content: env.Text})
 					_ = b.Publish(ctx, bus.ReplyKey("pubsub"), &bus.Envelope{
 						ID:             "reply-" + env.ID,
 						ClientID:       env.ClientID,
@@ -375,7 +375,11 @@ func TestIntegration_RestartRecoveryWithPersistentMemory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := len(store.Get("c-restart", "t-restart", 100)); got < 1 {
+	msgs, err := store.Get("c-restart", "t-restart", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(msgs); got < 1 {
 		t.Fatalf("expected persisted history >=1 message after first run, got %d", got)
 	}
 
@@ -384,7 +388,11 @@ func TestIntegration_RestartRecoveryWithPersistentMemory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := len(store2.Get("c-restart", "t-restart", 100)); got < 2 {
+	msgs, err = store2.Get("c-restart", "t-restart", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(msgs); got < 2 {
 		t.Fatalf("expected history to survive restart and grow, got %d", got)
 	}
 }

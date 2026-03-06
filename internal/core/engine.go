@@ -34,6 +34,7 @@ type Engine struct {
 	sched  *scheduler.Engine
 	skills *skill.Registry
 	mem    memory.Store
+	sess   *session.Service
 }
 
 // New wires and validates the engine from config. Does not start I/O.
@@ -113,6 +114,7 @@ func New(cfg *config.Root, log *slog.Logger) (*Engine, error) {
 		sched:  sched,
 		skills: skillReg,
 		mem:    mem,
+		sess:   sessionSvc,
 	}, nil
 }
 
@@ -165,6 +167,11 @@ func (e *Engine) Run(ctx context.Context) error {
 	if closer, ok := e.mem.(interface{ Close() error }); ok {
 		if err := closer.Close(); err != nil {
 			e.log.Warn("memory close error", "err", err)
+		}
+	}
+	if e.sess != nil {
+		if err := e.sess.Shutdown(); err != nil {
+			e.log.Warn("session shutdown error", "err", err)
 		}
 	}
 	return nil

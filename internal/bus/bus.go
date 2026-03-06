@@ -1,25 +1,15 @@
-// Package bus — the universal internal message backbone.
-//
-// Design contract:
-//   - Protocols publish INBOUND  messages to key "__inbound__"
-//   - Agent loops publish OUTBOUND messages to key "__reply__:<protocol>"
-//   - Protocols subscribe to "__reply__:<their_name>" and filter by ClientID in Meta
-//
-// This routing model means:
-//   - The bus is purely a pub/sub channel map; no routing logic lives here.
-//   - Swapping to NATS/Redis: implement Bus interface, wire in main.go.
 package bus
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/krill/krill/internal/telemetry"
 )
-
-// ─── Envelope ─────────────────────────────────────────────────────────────────
 
 type Role string
 
@@ -30,46 +20,42 @@ const (
 	RoleTool      Role = "tool"
 )
 
-// Envelope is the single internal message format all protocols normalize to.
 type Envelope struct {
-	ID string `json:"id"`
-	// ClientID identifies the end-user session (e.g. "tg:12345678", "http:uuid")
-	ClientID string `json:"client_id"`
-	// ThreadID is the conversation thread (often == ClientID, but clients may have multiple threads)
+	ID             string            `json:"id"`
+	ClientID       string            `json:"client_id"`
 	ThreadID       string            `json:"thread_id"`
 	Role           Role              `json:"role"`
-	Text           string            `json:"text"` // primary text content
+	Text           string            `json:"text"`
 	Attachments    []Attachment      `json:"attachments,omitempty"`
 	ToolCalls      []ToolCall        `json:"tool_calls,omitempty"`
-	ToolCallID     string            `json:"tool_call_id,omitempty"` // for role=tool replies
-	SourceProtocol string            `json:"source_protocol"`        // originating plugin name
-	Meta           map[string]string `json:"meta,omitempty"`         // protocol-specific metadata
+	ToolCallID     string            `json:"tool_call_id,omitempty"`
+	SourceProtocol string            `json:"source_protocol"`
+	Meta           map[string]string `json:"meta,omitempty"`
 	CreatedAt      time.Time         `json:"created_at"`
 }
 
-// Attachment represents binary or URL payloads attached to an envelope.
 type Attachment struct {
-	Type string `json:"type"` // "image_url" | "file"
+	Type string `json:"type"`
 	URL  string `json:"url,omitempty"`
 	Data []byte `json:"data,omitempty"`
 }
 
-// ToolCall is the tool invocation payload carried by envelopes.
 type ToolCall struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
-	Arguments string `json:"arguments"` // JSON-encoded
+	Arguments string `json:"arguments"`
 }
 
-// InboundKey is the bus channel all protocols publish user messages to.
 const InboundKey = "__inbound__"
 
 var (
 	replyPrefixMu sync.RWMutex
 	replyPrefix   = "__reply__"
+
+	// ErrBackpressure indicates that at least one subscriber queue is full.
+	ErrBackpressure = errors.New("bus backpressure: subscriber queue full")
 )
 
-// SetReplyPrefix overrides the reply channel prefix used to derive protocol reply keys.
 func SetReplyPrefix(prefix string) {
 	replyPrefixMu.Lock()
 	defer replyPrefixMu.Unlock()
@@ -80,7 +66,6 @@ func SetReplyPrefix(prefix string) {
 	replyPrefix = clean
 }
 
-// ReplyKey builds the per-protocol reply channel key.
 func ReplyKey(protocol string) string {
 	replyPrefixMu.RLock()
 	prefix := replyPrefix
@@ -88,86 +73,142 @@ func ReplyKey(protocol string) string {
 	return prefix + ":" + protocol
 }
 
-// ─── Bus interface ────────────────────────────────────────────────────────────
-
-// Bus is the pub/sub backbone. One channel per key, bounded.
+// Bus is the compatibility facade used by the current runtime.
 type Bus interface {
-	// Publish sends an envelope to the channel identified by key.
 	Publish(ctx context.Context, key string, env *Envelope) error
-	// Subscribe returns the receive channel for a key (created on first call).
 	Subscribe(key string) <-chan *Envelope
-	// Unsubscribe removes and closes the channel.
 	Unsubscribe(key string)
 }
 
-// ─── Local in-process implementation ─────────────────────────────────────────
+// Subscription is the explicit backbone subscription contract used internally.
+type Subscription interface {
+	Key() string
+	C() <-chan *Envelope
+	Ack(*Envelope)
+	Close()
+}
 
-type localBus struct {
+// Backbone is the richer event delivery contract introduced by M4.5.
+type Backbone interface {
+	Bus
+	SubscribeQueue(key string) Subscription
+	SubscriberCount(key string) int
+}
+
+type localBackbone struct {
 	bufSize int
+
 	mu      sync.RWMutex
-	chans   map[string]chan *Envelope
+	topics  map[string]map[uint64]*subscriber
+	nextSub atomic.Uint64
 }
 
-// NewLocal creates an in-process bus with bounded channels per key.
+type subscriber struct {
+	id     uint64
+	key    string
+	ch     chan *Envelope
+	parent *localBackbone
+}
+
 func NewLocal(bufSize int) Bus {
-	return &localBus{bufSize: bufSize, chans: make(map[string]chan *Envelope)}
+	if bufSize <= 0 {
+		bufSize = 1
+	}
+	return &localBackbone{
+		bufSize: bufSize,
+		topics:  make(map[string]map[uint64]*subscriber),
+	}
 }
 
-func (b *localBus) Publish(ctx context.Context, key string, env *Envelope) error {
-	traceID := ""
-	parentSpan := ""
-	if env != nil && env.Meta != nil {
-		traceID = env.Meta["trace_id"]
-		parentSpan = env.Meta["ingress_span"]
+func (b *localBackbone) Publish(ctx context.Context, key string, env *Envelope) error {
+	if env == nil {
+		return nil
 	}
-	span := telemetry.StartSpan(nil, traceID, parentSpan, "bus.publish", "key", key)
-	defer span.End(nil, "key", key)
-
-	ch := b.getOrCreate(key)
-	select {
-	case ch <- env:
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-		// Ring-buffer: evict oldest to make room
-		select {
-		case <-ch:
-		default:
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	b.mu.RLock()
+	subs := make([]*subscriber, 0, len(b.topics[key]))
+	for _, sub := range b.topics[key] {
+		subs = append(subs, sub)
+	}
+	for _, sub := range subs {
+		if len(sub.ch) >= cap(sub.ch) {
+			b.mu.RUnlock()
+			return ErrBackpressure
 		}
-		ch <- env
 	}
+	for _, sub := range subs {
+		select {
+		case sub.ch <- env:
+		case <-ctx.Done():
+			b.mu.RUnlock()
+			return ctx.Err()
+		default:
+			b.mu.RUnlock()
+			return ErrBackpressure
+		}
+	}
+	b.mu.RUnlock()
 	if key == InboundKey {
-		telemetry.SetGauge(telemetry.MetricInboundQueueDepth, int64(len(ch)), nil)
+		var depth int
+		for _, sub := range subs {
+			depth += len(sub.ch)
+		}
+		telemetry.SetGauge(telemetry.MetricInboundQueueDepth, int64(depth), nil)
 	}
 	return nil
 }
 
-func (b *localBus) Subscribe(key string) <-chan *Envelope {
-	return b.getOrCreate(key)
+func (b *localBackbone) Subscribe(key string) <-chan *Envelope {
+	return b.SubscribeQueue(key).C()
 }
 
-func (b *localBus) Unsubscribe(key string) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if ch, ok := b.chans[key]; ok {
-		close(ch)
-		delete(b.chans, key)
+func (b *localBackbone) SubscribeQueue(key string) Subscription {
+	sub := &subscriber{
+		id:     b.nextSub.Add(1),
+		key:    key,
+		ch:     make(chan *Envelope, b.bufSize),
+		parent: b,
 	}
+	b.mu.Lock()
+	if b.topics[key] == nil {
+		b.topics[key] = make(map[uint64]*subscriber)
+	}
+	b.topics[key][sub.id] = sub
+	b.mu.Unlock()
+	return sub
 }
 
-func (b *localBus) getOrCreate(key string) chan *Envelope {
+func (b *localBackbone) SubscriberCount(key string) int {
 	b.mu.RLock()
-	ch, ok := b.chans[key]
-	b.mu.RUnlock()
-	if ok {
-		return ch
-	}
+	defer b.mu.RUnlock()
+	return len(b.topics[key])
+}
+
+func (b *localBackbone) Unsubscribe(key string) {
 	b.mu.Lock()
-	defer b.mu.Unlock()
-	if ch, ok = b.chans[key]; ok {
-		return ch
+	subs := b.topics[key]
+	delete(b.topics, key)
+	b.mu.Unlock()
+	for _, sub := range subs {
+		close(sub.ch)
 	}
-	ch = make(chan *Envelope, b.bufSize)
-	b.chans[key] = ch
-	return ch
+}
+
+func (s *subscriber) Key() string         { return s.key }
+func (s *subscriber) C() <-chan *Envelope { return s.ch }
+func (s *subscriber) Ack(_ *Envelope)     {}
+func (s *subscriber) Close()              { s.parent.removeSubscriber(s.key, s.id, s.ch) }
+
+func (b *localBackbone) removeSubscriber(key string, id uint64, ch chan *Envelope) {
+	b.mu.Lock()
+	if subs, ok := b.topics[key]; ok {
+		delete(subs, id)
+		if len(subs) == 0 {
+			delete(b.topics, key)
+		}
+	}
+	b.mu.Unlock()
+	close(ch)
 }
