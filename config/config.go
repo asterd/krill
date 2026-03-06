@@ -14,16 +14,18 @@ import (
 
 // Root is the top-level runtime configuration document.
 type Root struct {
-	Core       CoreConfig        `yaml:"core"`
-	OTEL       OTELConfig        `yaml:"otel"`
-	LLM        LLMPool           `yaml:"llm"`
-	Sessions   SessionConfig     `yaml:"sessions"`
-	Scheduler  SchedulerConfig   `yaml:"scheduler"`
-	Protocols  []PluginRef       `yaml:"protocols"`
-	Agents     []AgentConfig     `yaml:"agents"`
-	Workflows  []WorkflowConfig  `yaml:"workflows"`
-	OrgSchemas []OrgSchemaConfig `yaml:"org_schemas"`
-	Skills     []SkillConfig     `yaml:"skills"`
+	Core         CoreConfig         `yaml:"core"`
+	OTEL         OTELConfig         `yaml:"otel"`
+	LLM          LLMPool            `yaml:"llm"`
+	Sessions     SessionConfig      `yaml:"sessions"`
+	Scheduler    SchedulerConfig    `yaml:"scheduler"`
+	Planner      PlannerConfig      `yaml:"planner"`
+	Protocols    []PluginRef        `yaml:"protocols"`
+	Agents       []AgentConfig      `yaml:"agents"`
+	Workflows    []WorkflowConfig   `yaml:"workflows"`
+	OrgSchemas   []OrgSchemaConfig  `yaml:"org_schemas"`
+	Skills       []SkillConfig      `yaml:"skills"`
+	Capabilities []CapabilityConfig `yaml:"capabilities"`
 }
 
 // OTELConfig configures tracing and metrics export behavior.
@@ -165,6 +167,38 @@ type SchedulerConfig struct {
 	Schedules []ScheduleConfig `yaml:"schedules"`
 }
 
+// PlannerConfig configures the M5 planning/runtime governance layer.
+type PlannerConfig struct {
+	ProgressiveMode       string `yaml:"progressive_mode"`        // monitor | enforce
+	DefaultSandboxProfile string `yaml:"default_sandbox_profile"` // strict | balanced | extended
+	DefaultRuntimeProfile string `yaml:"default_runtime_profile"` // default | opencode
+}
+
+// CapabilityConfig declares a policy-governed executable capability.
+type CapabilityConfig struct {
+	Name                 string   `yaml:"name"`
+	Type                 string   `yaml:"type"` // skill | mcp | code | backend_action | agent_action | deployment_action | notification_action
+	Ref                  string   `yaml:"ref"`
+	Description          string   `yaml:"description"`
+	ReleaseChannel       string   `yaml:"release_channel"` // stable | candidate | deprecated
+	RuntimeProfile       string   `yaml:"runtime_profile"` // default | opencode
+	SandboxProfile       string   `yaml:"sandbox_profile"` // strict | balanced | extended
+	Protocols            []string `yaml:"protocols"`
+	Workflows            []string `yaml:"workflows"`
+	AllowedAgents        []string `yaml:"allowed_agents"`
+	RequiredSecrets      []string `yaml:"required_secrets"`
+	RequiredApprovals    int      `yaml:"required_approvals"`
+	AllowNetwork         bool     `yaml:"allow_network"`
+	AllowFilesystemWrite bool     `yaml:"allow_filesystem_write"`
+	MaxTimeoutMs         int      `yaml:"max_timeout_ms"`
+	CostWeight           int      `yaml:"cost_weight"`
+	LatencyWeight        int      `yaml:"latency_weight"`
+	TrustScore           int      `yaml:"trust_score"`
+	RiskScore            int      `yaml:"risk_score"`
+	MaxConcurrency       int      `yaml:"max_concurrency"`
+	Fallbacks            []string `yaml:"fallbacks"`
+}
+
 // ScheduleConfig defines a single cron-triggered execution target.
 type ScheduleConfig struct {
 	ID                string `yaml:"schedule_id"`
@@ -296,6 +330,11 @@ func defaults() *Root {
 			Enabled: false,
 			TickMs:  1000,
 		},
+		Planner: PlannerConfig{
+			ProgressiveMode:       "monitor",
+			DefaultSandboxProfile: "balanced",
+			DefaultRuntimeProfile: "default",
+		},
 	}
 }
 
@@ -346,6 +385,76 @@ func (c *Root) validate() error {
 	}
 	if err := c.validateScheduler(); err != nil {
 		return err
+	}
+	if err := c.validatePlanner(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *Root) validatePlanner() error {
+	mode := strings.ToLower(strings.TrimSpace(c.Planner.ProgressiveMode))
+	if mode == "" {
+		mode = "monitor"
+	}
+	if !slices.Contains([]string{"monitor", "enforce"}, mode) {
+		return fmt.Errorf("planner.progressive_mode must be monitor|enforce")
+	}
+	profile := strings.ToLower(strings.TrimSpace(c.Planner.DefaultSandboxProfile))
+	if profile == "" {
+		profile = "balanced"
+	}
+	if !slices.Contains([]string{"strict", "balanced", "extended"}, profile) {
+		return fmt.Errorf("planner.default_sandbox_profile must be strict|balanced|extended")
+	}
+	runtimeProfile := strings.ToLower(strings.TrimSpace(c.Planner.DefaultRuntimeProfile))
+	if runtimeProfile == "" {
+		runtimeProfile = "default"
+	}
+	if !slices.Contains([]string{"default", "opencode"}, runtimeProfile) {
+		return fmt.Errorf("planner.default_runtime_profile must be default|opencode")
+	}
+	seen := make(map[string]struct{}, len(c.Capabilities))
+	for _, capCfg := range c.Capabilities {
+		name := strings.TrimSpace(capCfg.Name)
+		if name == "" {
+			return fmt.Errorf("capabilities.name is required")
+		}
+		if _, ok := seen[name]; ok {
+			return fmt.Errorf("capability %q configured more than once", name)
+		}
+		seen[name] = struct{}{}
+		typ := strings.ToLower(strings.TrimSpace(capCfg.Type))
+		if !slices.Contains([]string{"skill", "mcp", "code", "backend_action", "agent_action", "deployment_action", "notification_action"}, typ) {
+			return fmt.Errorf("capability %q type must be skill|mcp|code|backend_action|agent_action|deployment_action|notification_action", name)
+		}
+		channel := strings.ToLower(strings.TrimSpace(capCfg.ReleaseChannel))
+		if channel == "" {
+			channel = "stable"
+		}
+		if !slices.Contains([]string{"stable", "candidate", "deprecated"}, channel) {
+			return fmt.Errorf("capability %q release_channel must be stable|candidate|deprecated", name)
+		}
+		sbProfile := strings.ToLower(strings.TrimSpace(capCfg.SandboxProfile))
+		if sbProfile != "" && !slices.Contains([]string{"strict", "balanced", "extended"}, sbProfile) {
+			return fmt.Errorf("capability %q sandbox_profile must be strict|balanced|extended", name)
+		}
+		runtimeProfile := strings.ToLower(strings.TrimSpace(capCfg.RuntimeProfile))
+		if runtimeProfile != "" && !slices.Contains([]string{"default", "opencode"}, runtimeProfile) {
+			return fmt.Errorf("capability %q runtime_profile must be default|opencode", name)
+		}
+		if capCfg.MaxTimeoutMs < 0 {
+			return fmt.Errorf("capability %q max_timeout_ms must be >= 0", name)
+		}
+		if capCfg.TrustScore < 0 || capCfg.TrustScore > 100 {
+			return fmt.Errorf("capability %q trust_score must be in range [0,100]", name)
+		}
+		if capCfg.RiskScore < 0 || capCfg.RiskScore > 100 {
+			return fmt.Errorf("capability %q risk_score must be in range [0,100]", name)
+		}
+		if capCfg.MaxConcurrency < 0 {
+			return fmt.Errorf("capability %q max_concurrency must be >= 0", name)
+		}
 	}
 	return nil
 }

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/google/uuid"
 	"github.com/krill/krill/config"
 	"github.com/krill/krill/internal/agent"
 	"github.com/krill/krill/internal/bus"
@@ -36,6 +37,10 @@ type Orch struct {
 
 	wfMu     sync.Mutex
 	wfStates map[string]WorkflowState
+
+	planMu       sync.Mutex
+	planRuns     map[string]plan
+	capabilities *capabilityGraph
 }
 
 type threadState struct {
@@ -63,18 +68,20 @@ func New(
 		queueDepth = 32
 	}
 	return &Orch{
-		cfg:        cfg,
-		b:          b,
-		skillReg:   skillReg,
-		mem:        mem,
-		llms:       llms,
-		log:        log,
-		sessions:   sessions,
-		threads:    make(map[string]*threadState),
-		queueDepth: queueDepth,
-		sem:        make(chan struct{}, maxClients),
-		work:       make(chan string, maxClients),
-		wfStates:   make(map[string]WorkflowState),
+		cfg:          cfg,
+		b:            b,
+		skillReg:     skillReg,
+		mem:          mem,
+		llms:         llms,
+		log:          log,
+		sessions:     sessions,
+		threads:      make(map[string]*threadState),
+		queueDepth:   queueDepth,
+		sem:          make(chan struct{}, maxClients),
+		work:         make(chan string, maxClients),
+		wfStates:     make(map[string]WorkflowState),
+		planRuns:     make(map[string]plan),
+		capabilities: newCapabilityGraph(cfg, skillNames(skillReg)),
 	}, nil
 }
 
@@ -109,8 +116,10 @@ func (o *Orch) dispatch(ctx context.Context, in <-chan *bus.Envelope) {
 }
 
 func (o *Orch) route(ctx context.Context, env *bus.Envelope) {
-	if wf, ok := o.workflowFor(env); ok && isCooperativeWorkflow(wf) {
-		o.routeCooperative(ctx, env, wf)
+	wf, _ := o.workflowFor(env)
+	in := o.resolveIntent(env, wf)
+	if o.shouldUsePlanner(env, wf, in) {
+		o.routePlanned(ctx, env, wf, in)
 		return
 	}
 
@@ -147,6 +156,42 @@ func (o *Orch) route(ctx context.Context, env *bus.Envelope) {
 	active := len(o.threads)
 	o.mu.Unlock()
 	telemetry.SetGauge(telemetry.MetricActiveLoops, int64(active), nil)
+}
+
+func skillNames(reg *skill.Registry) []string {
+	if reg == nil {
+		return nil
+	}
+	return reg.AllNames()
+}
+
+func (o *Orch) routePlanned(ctx context.Context, env *bus.Envelope, wf config.WorkflowConfig, in intent) {
+	traceID := defaultString(metaValue(env, "trace_id"), telemetry.NewTraceID())
+	parentSpan := metaValue(env, "consume_span")
+	span := telemetry.StartSpan(nil, traceID, parentSpan, "orchestrator.route_plan",
+		"workflow_id", wf.ID,
+		"client", env.ClientID,
+	)
+	defer span.End(nil, "workflow_id", wf.ID, "client", env.ClientID)
+
+	select {
+	case o.sem <- struct{}{}:
+	default:
+		o.log.Warn("max clients reached for planner", "client", env.ClientID, "thread", env.ThreadID)
+		return
+	}
+	go func() {
+		defer func() { <-o.sem }()
+		p, err := o.buildPlan(env, wf, in)
+		if err != nil {
+			o.log.Warn("plan build failed", "err", err, "workflow_id", wf.ID)
+			_ = o.publishPlanBlocked(ctx, env, wf, traceID, defaultString(metaValue(env, "request_id"), env.ID), &plan{ID: uuid.NewString(), RequestID: defaultString(metaValue(env, "request_id"), env.ID), WorkflowID: wf.ID, Status: "blocked"}, policyDecision{Reason: err.Error()})
+			return
+		}
+		if err := o.executePlan(ctx, env, wf, in, &p); err != nil {
+			o.log.Warn("planned execution failed", "err", err, "workflow_id", wf.ID)
+		}
+	}()
 }
 
 func (o *Orch) worker(ctx context.Context) {

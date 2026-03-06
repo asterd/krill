@@ -82,6 +82,11 @@ protocols:
       retry_backoff_ms: 100
       retry_backoff_max_ms: 2000
 
+planner:
+  progressive_mode: monitor         # monitor | enforce
+  default_sandbox_profile: balanced # strict | balanced | extended
+  default_runtime_profile: default  # default | opencode
+
 agents:
   - name: default
     description: General-purpose assistant
@@ -126,5 +131,26 @@ workflows:
       token_budget: 12000
       allowed_pairs:
         - default->default
+
+capabilities:
+  - name: code_exec
+    type: code
+    release_channel: stable
+    runtime_profile: opencode
+    sandbox_profile: balanced
+    max_timeout_ms: 30000
+    max_concurrency: 2
+    trust_score: 65
+    risk_score: 55
+  - name: deploy:asset
+    type: deployment_action
+    release_channel: candidate
+    runtime_profile: opencode
+    sandbox_profile: extended
+    allow_network: true
+    allow_filesystem_write: true
+    required_approvals: 1
+    trust_score: 60
+    risk_score: 70
 
 # skills: []   # add custom exec/wasm skills here

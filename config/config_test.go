@@ -254,6 +254,172 @@ protocols:
 	}
 }
 
+func TestLoad_RejectInvalidPlannerProfileAndCapability(t *testing.T) {
+	cfg := `
+core:
+  sandbox_type: exec
+planner:
+  progressive_mode: enforce
+  default_sandbox_profile: unsafe
+llm:
+  default: gpt4o
+  backends:
+    - name: gpt4o
+      base_url: https://example.test
+      api_key: test
+      model: x
+      max_tokens: 1
+protocols:
+  - name: http
+    enabled: true
+    config: {}
+`
+	if _, err := Load(writeTempConfig(t, cfg)); err == nil {
+		t.Fatal("expected invalid planner sandbox profile")
+	}
+
+	cfg = `
+core:
+  sandbox_type: exec
+planner:
+  progressive_mode: enforce
+  default_sandbox_profile: balanced
+llm:
+  default: gpt4o
+  backends:
+    - name: gpt4o
+      base_url: https://example.test
+      api_key: test
+      model: x
+      max_tokens: 1
+protocols:
+  - name: http
+    enabled: true
+    config: {}
+capabilities:
+  - name: deploy:asset
+    type: wrong
+`
+	if _, err := Load(writeTempConfig(t, cfg)); err == nil {
+		t.Fatal("expected invalid capability type")
+	}
+}
+
+func TestLoad_AcceptsPlannerAndCapabilities(t *testing.T) {
+	cfg := `
+core:
+  sandbox_type: exec
+planner:
+  progressive_mode: enforce
+  default_sandbox_profile: extended
+  default_runtime_profile: opencode
+llm:
+  default: gpt4o
+  backends:
+    - name: gpt4o
+      base_url: https://example.test
+      api_key: test
+      model: x
+      max_tokens: 1
+protocols:
+  - name: http
+    enabled: true
+    config: {}
+capabilities:
+  - name: code_exec
+    type: code
+    release_channel: stable
+    runtime_profile: opencode
+    sandbox_profile: balanced
+    trust_score: 90
+    risk_score: 30
+    max_concurrency: 2
+  - name: deploy:asset
+    type: deployment_action
+    release_channel: candidate
+    runtime_profile: opencode
+    sandbox_profile: extended
+    allow_network: true
+    allow_filesystem_write: true
+    required_approvals: 1
+`
+	if _, err := Load(writeTempConfig(t, cfg)); err != nil {
+		t.Fatalf("expected valid planner config, got %v", err)
+	}
+}
+
+func TestLoad_RejectCapabilityValidationVariants(t *testing.T) {
+	base := `
+core:
+  sandbox_type: exec
+planner:
+  progressive_mode: monitor
+  default_sandbox_profile: balanced
+  default_runtime_profile: default
+llm:
+  default: gpt4o
+  backends:
+    - name: gpt4o
+      base_url: https://example.test
+      api_key: test
+      model: x
+      max_tokens: 1
+protocols:
+  - name: http
+    enabled: true
+    config: {}
+capabilities:
+`
+	cases := []string{
+		base + `
+  - name: dup
+    type: backend_action
+  - name: dup
+    type: backend_action
+`,
+		base + `
+  - name: bad-channel
+    type: backend_action
+    release_channel: unstable
+`,
+		base + `
+  - name: bad-runtime
+    type: backend_action
+    runtime_profile: weird
+`,
+		base + `
+  - name: bad-sandbox
+    type: backend_action
+    sandbox_profile: wild
+`,
+		base + `
+  - name: bad-trust
+    type: backend_action
+    trust_score: 101
+`,
+		base + `
+  - name: bad-risk
+    type: backend_action
+    risk_score: 101
+`,
+		base + `
+  - name: bad-timeout
+    type: backend_action
+    max_timeout_ms: -1
+`,
+		base + `
+  - name: bad-concurrency
+    type: backend_action
+    max_concurrency: -1
+`,
+	}
+	for _, cfg := range cases {
+		if _, err := Load(writeTempConfig(t, cfg)); err == nil {
+			t.Fatalf("expected validation error for config:\n%s", cfg)
+		}
+	}
+}
+
 func TestLoad_NonRegression_LegacyProtocolsStillValid(t *testing.T) {
 	cfg := `
 core:
