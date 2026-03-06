@@ -30,6 +30,7 @@ Current Krill gaps to close incrementally:
 2. Versioned context/state (branch/merge/audit on structured agent context) is missing.
 3. Skill management is lifecycle-oriented but not yet intelligence-oriented (ranking, trust, compatibility, policy-based auto-selection).
 4. Federation-grade audit and provenance need stronger primitives.
+5. Runtime kernel contracts are still too coarse-grained for the target performance and resilience envelope.
 
 ## Non-Goals (for this spec pack)
 
@@ -61,17 +62,32 @@ Current Krill gaps to close incrementally:
 Ingress Plugins (http/telegram/webhook/pubsub/a2a)
       -> Envelope Normalizer (v2 schema)
       -> Bus (local|external adapter)
-      -> Orchestrator (single or cooperative multi-agent)
+      -> Orchestrator (single, planned, or cooperative multi-agent)
+      -> Intent Resolver
+      -> Planner
+      -> Capability Selector + Policy Gate
+      -> Plan Executor
       -> Agent Loop(s) + Skill Runtime(s)
       -> Reply Router (protocol-aware)
       -> Egress plugins
 
 Cross-cutting:
 - Session Store (persistent history/checkpoints/summaries)
+- Capability Registry / Metadata Graph
 - Policy Engine (capabilities, budgets, allow/deny)
 - OTEL (traces, metrics, logs correlation)
 - Audit/Event Stream
 ```
+
+Planner-oriented execution requirements:
+
+1. The system MUST support an explicit execution plan for non-trivial requests.
+2. A plan MUST be auditable, replayable, and versionable inside session/provenance state.
+3. Planning and execution MUST remain lightweight:
+   - keep single-step conversational flows on the existing direct agent loop path
+   - use the planner path only when the request requires multi-step tool orchestration, policy-sensitive execution, or retries/fallbacks
+4. The planner MUST operate on a generic capability abstraction rather than hard-coding only skills.
+5. Capability selection MUST occur before execution and MUST be policy-aware.
 
 ## Runtime Packaging and Environment Parity
 
@@ -325,6 +341,30 @@ Skill system must evolve from static registry to intelligence engine with:
    - policy violation counters
 5. Optional marketplace/federation import with signature verification.
 
+## Planning and Capability-Oriented Execution Requirements
+
+The runtime must evolve from implicit ReAct-only execution to a lightweight planning model.
+
+Required primitives:
+
+1. `IntentResolver`
+   - normalize user request into goal, constraints, tenant/security context, and requested modality
+2. `Plan`
+   - explicit structure with steps, candidate capabilities, selected capability, budgets, timeouts, fallbacks, and status
+3. `Capability`
+   - generic abstraction covering skill, MCP endpoint, code execution, backend action, or delegated agent action
+4. `CapabilitySelector`
+   - deterministic selection using policy, budget, compatibility, trust, and latency/cost metadata
+5. `PlanExecutor`
+   - step execution with pre-execution policy checks, retries/fallbacks, result normalization, and audit emission
+
+Execution rules:
+
+1. Simple conversational turns MAY remain on the direct loop path.
+2. Multi-step, high-risk, or policy-sensitive requests MUST go through explicit planning.
+3. Every executed step MUST record rationale, selected capability, and policy decision inputs.
+4. Planner output MUST be inspectable through session/audit records and future control-plane APIs.
+
 ## Test and Quality Contract (Mandatory)
 
 For every milestone implementation:
@@ -358,8 +398,9 @@ Detailed instructions per milestone:
 - [M2 - OTEL Deep Observability](/Users/ddurzo/Development/python/krill/docs/spec/milestones/M2.md)
 - [M3 - A2A + Cooperative Orchestration](/Users/ddurzo/Development/python/krill/docs/spec/milestones/M3.md)
 - [M4 - Cron + Long Sessions](/Users/ddurzo/Development/python/krill/docs/spec/milestones/M4.md)
-- [M5 - Capability Governance + Sandbox Hardening](/Users/ddurzo/Development/python/krill/docs/spec/milestones/M5.md)
-- [M6 - Enterprise Control Plane](/Users/ddurzo/Development/python/krill/docs/spec/milestones/M6.md)
+- [M4.5 - Runtime Kernel Refactor](/Users/ddurzo/Development/python/krill/docs/spec/milestones/M4.5.md)
+- [M5 - Capability Governance + Lightweight Planning Engine](/Users/ddurzo/Development/python/krill/docs/spec/milestones/M5.md)
+- [M6 - Enterprise Control Plane + Planner Operations](/Users/ddurzo/Development/python/krill/docs/spec/milestones/M6.md)
 
 Planning companion:
 
@@ -375,7 +416,8 @@ Declarative/versioned evolution distribution:
 
 - M3: declarative org schema + cooperative execution compiler
 - M4: versioned context/session primitives (branch/merge/checkpoint/audit)
-- M5: intelligent skill engine + trust/policy-aware selection
+- M4.5: runtime kernel refactor (event backbone + state plane + execution model)
+- M5: lightweight planning engine + intelligent capability selection + trust/policy-aware execution
 
 ## Implementation Prompt Template (Reusable)
 

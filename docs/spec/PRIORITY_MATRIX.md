@@ -24,8 +24,9 @@ Legenda:
 | A2A ingress + cooperative handoff | M3 | H | M | M | M0-M2 | Multi-agent interoperabile | Policy hop/budget obbligatorie |
 | Cron scheduler | M4 | M | M | M | M0-M3 | Automazione workload | Aggiungere deterministic clock nei test |
 | Versioned context (branch/merge/commit) | M4 | H | H | H | M1-M3 | Contesto versionato/audit | Cuore “organizational intelligence” |
-| Intelligent skill engine (metadata/ranking/channels) | M5 | H | H | H | M3-M4 | Skill intelligence | Abilitare rollout `monitor -> enforce` |
-| Capability policy + sandbox hardening | M5 | H | H | H | M2-M4 | Sicurezza runtime | Test evasione obbligatori |
+| Runtime kernel refactor (bus/state/execution) | M4.5 | H | H | H | M0-M4 | Fondamenta runtime corrette | Consentita rottura compat per kernel più semplice |
+| Intelligent capability engine (metadata/ranking/channels) | M5 | H | H | H | M3-M4.5 | Capability intelligence | Abilitare rollout `monitor -> enforce` |
+| Capability policy + sandbox hardening | M5 | H | H | H | M2-M4.5 | Sicurezza runtime | Test evasione obbligatori |
 | OpenCode-compatible coding profile | M5 | M | M | M | M5 sandbox | Continuità coding backend | Vincolare capabilities per tenant |
 | Helm chart + minikube bootstrap | M6 | H | M | M | M0-M5 | Parità cluster | Script one-command anche per mini-kube |
 | Kubernetes/OpenShift install docs + validation | M6 | M | L | M | M6 Helm | Enterprise adoption | Validare SCC/security context OpenShift |
@@ -38,16 +39,18 @@ Legenda:
 3. Wave 3 (osservabilità): `M2` completo.
 4. Wave 4 (orchestrazione dichiarativa): `M3` completo.
 5. Wave 5 (cron + contesto versionato): `M4` completo.
-6. Wave 6 (skill intelligence + sicurezza hard): `M5` completo.
-7. Wave 7 (productization cluster/governance): `M6` completo.
+6. Wave 6 (kernel runtime): `M4.5` completo.
+7. Wave 7 (planning, capability intelligence, sicurezza hard): `M5` completo.
+8. Wave 8 (productization cluster/governance): `M6` completo.
 
 ## Risk Hotspots (da monitorare)
 
 1. `M1` external state migration: rischio regressione latenza e consistency.
 2. `M2` OTEL overhead: rischio di superare budget CPU in carico.
 3. `M4` merge semantics: rischio conflitti non deterministici in sessioni lunghe.
-4. `M5` policy + intelligent selector: rischio blocchi falsi positivi o selection bias.
-5. `M6` control plane coupling: rischio impatti sul data plane in failure mode.
+4. `M4.5` kernel refactor: rischio di introdurre regressioni nel path base se il nuovo contract non è testato bene.
+5. `M5` policy + intelligent selector: rischio blocchi falsi positivi o selection bias.
+6. `M6` control plane coupling: rischio impatti sul data plane in failure mode.
 
 ## KPI Gate per Go/No-Go tra milestone
 
@@ -56,4 +59,3 @@ Legenda:
 3. Test non-regressione verdi.
 4. Benchmark/overhead in target per milestone (quando richiesto).
 5. Evidenza documentata di exit criteria raggiunti.
-
