@@ -471,6 +471,26 @@ func (s *Service) Replay(sessionID string) ([]Event, error) {
 	return out, nil
 }
 
+func (s *Service) Snapshot(sessionID string) (Session, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.sessions[sessionID]
+	if !ok {
+		return Session{}, false
+	}
+	return cloneSession(*sess), true
+}
+
+func (s *Service) List() []Session {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]Session, 0, len(s.sessions))
+	for _, sess := range s.sessions {
+		out = append(out, cloneSession(*sess))
+	}
+	return out
+}
+
 func (s *Service) runAsyncWriter() {
 	for item := range s.asyncQueue {
 		_ = s.RecordMessage(item.clientID, item.threadID, item.msg, item.prov)

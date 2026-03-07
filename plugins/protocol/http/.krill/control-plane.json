@@ -1,0 +1,314 @@
+{
+  "schema_version": "v1",
+  "planner_override": {
+    "progressive_mode": "monitor",
+    "default_sandbox_profile": "balanced",
+    "default_runtime_profile": "default"
+  },
+  "schedule_overrides": {
+    "nightly": {
+      "ID": "nightly",
+      "CronExpr": "* * * * *",
+      "Timezone": "",
+      "Target": "wf-nightly",
+      "PayloadTemplate": "run",
+      "ConcurrencyPolicy": "allow",
+      "Enabled": false,
+      "MissedRunPolicy": "skip",
+      "RetryLimit": 0,
+      "RetryBackoffMs": 0,
+      "SessionMode": "persistent",
+      "Tenant": "",
+      "ClientID": "",
+      "ThreadID": ""
+    }
+  },
+  "secrets": {
+    "KRILL_ROTATE": {
+      "name": "KRILL_ROTATE",
+      "revision": 2,
+      "updated_at": "2026-03-07T13:38:31.138037Z"
+    }
+  },
+  "rollouts": {
+    "2f2c7595-a727-41d6-8aa4-d4f4c40630de": {
+      "id": "2f2c7595-a727-41d6-8aa4-d4f4c40630de",
+      "kind": "capability",
+      "target": "notify:user",
+      "status": "dry_run",
+      "dry_run": true,
+      "created_at": "2026-03-07T13:38:31.138084Z",
+      "applied_at": "0001-01-01T00:00:00Z",
+      "previous": {
+        "previous": {
+          "name": "notify:user",
+          "type": "notification_action",
+          "ref": "notify:user",
+          "release_channel": "stable",
+          "runtime_profile": "default",
+          "sandbox_profile": "strict",
+          "allow_network": false,
+          "allow_filesystem_write": false,
+          "trust_score": 90,
+          "risk_score": 15,
+          "feedback": {
+            "successes": 0,
+            "failures": 0,
+            "violations": 0,
+            "avg_latency": 0,
+            "last_latency": 0
+          },
+          "running": 0
+        }
+      },
+      "current": {
+        "current": {
+          "name": "notify:user",
+          "type": "notification_action",
+          "ref": "",
+          "release_channel": "",
+          "runtime_profile": "",
+          "sandbox_profile": "",
+          "allow_network": false,
+          "allow_filesystem_write": false,
+          "trust_score": 0,
+          "risk_score": 0,
+          "feedback": {
+            "successes": 0,
+            "failures": 0,
+            "violations": 0,
+            "avg_latency": 0,
+            "last_latency": 0
+          },
+          "running": 0
+        }
+      }
+    },
+    "33002435-f08b-4f17-a29b-0b89d1ca6332": {
+      "id": "33002435-f08b-4f17-a29b-0b89d1ca6332",
+      "kind": "planner",
+      "target": "planner/default",
+      "status": "rolled_back",
+      "dry_run": true,
+      "created_at": "2026-03-07T13:38:11.957485Z",
+      "applied_at": "2026-03-07T13:38:11.957643Z",
+      "previous": {
+        "previous": {
+          "default_runtime_profile": "default",
+          "default_sandbox_profile": "balanced",
+          "progressive_mode": "monitor"
+        }
+      },
+      "current": {
+        "current": {
+          "default_runtime_profile": "default",
+          "default_sandbox_profile": "balanced",
+          "progressive_mode": "monitor"
+        }
+      }
+    },
+    "39612c6f-1201-40dd-8337-ff0d9f9e5286": {
+      "id": "39612c6f-1201-40dd-8337-ff0d9f9e5286",
+      "kind": "planner",
+      "target": "planner/default",
+      "status": "dry_run",
+      "dry_run": true,
+      "created_at": "2026-03-07T13:38:11.956459Z",
+      "applied_at": "0001-01-01T00:00:00Z",
+      "previous": {
+        "previous": {
+          "default_runtime_profile": "default",
+          "default_sandbox_profile": "balanced",
+          "progressive_mode": "monitor"
+        }
+      },
+      "current": {
+        "current": {
+          "default_runtime_profile": "default",
+          "default_sandbox_profile": "balanced",
+          "progressive_mode": "enforce"
+        }
+      }
+    },
+    "4c1713e9-9cb0-4605-a21e-c06ee4f29e25": {
+      "id": "4c1713e9-9cb0-4605-a21e-c06ee4f29e25",
+      "kind": "planner",
+      "target": "planner/default",
+      "status": "dry_run",
+      "dry_run": true,
+      "created_at": "2026-03-07T13:38:31.138022Z",
+      "applied_at": "0001-01-01T00:00:00Z",
+      "previous": {
+        "previous": {
+          "progressive_mode": "monitor",
+          "default_sandbox_profile": "balanced",
+          "default_runtime_profile": "default"
+        }
+      },
+      "current": {
+        "current": {
+          "progressive_mode": "enforce",
+          "default_sandbox_profile": "balanced",
+          "default_runtime_profile": "default"
+        }
+      }
+    },
+    "b6a7738b-13ef-410d-a518-1e4a222bf91f": {
+      "id": "b6a7738b-13ef-410d-a518-1e4a222bf91f",
+      "kind": "planner",
+      "target": "planner/default",
+      "status": "rolled_back",
+      "dry_run": true,
+      "created_at": "2026-03-07T13:38:31.138124Z",
+      "applied_at": "2026-03-07T13:38:31.138147Z",
+      "previous": {
+        "previous": {
+          "progressive_mode": "monitor",
+          "default_sandbox_profile": "balanced",
+          "default_runtime_profile": "default"
+        }
+      },
+      "current": {
+        "current": {
+          "progressive_mode": "monitor",
+          "default_sandbox_profile": "balanced",
+          "default_runtime_profile": "default"
+        }
+      }
+    },
+    "dde26069-6557-4db3-8bb1-0db818c622cc": {
+      "id": "dde26069-6557-4db3-8bb1-0db818c622cc",
+      "kind": "capability",
+      "target": "notify:user",
+      "status": "dry_run",
+      "dry_run": true,
+      "created_at": "2026-03-07T13:38:11.957043Z",
+      "applied_at": "0001-01-01T00:00:00Z",
+      "previous": {
+        "previous": {
+          "allow_filesystem_write": false,
+          "allow_network": false,
+          "feedback": {
+            "avg_latency": 0,
+            "failures": 0,
+            "last_latency": 0,
+            "successes": 0,
+            "violations": 0
+          },
+          "name": "notify:user",
+          "ref": "notify:user",
+          "release_channel": "stable",
+          "risk_score": 15,
+          "running": 0,
+          "runtime_profile": "default",
+          "sandbox_profile": "strict",
+          "trust_score": 90,
+          "type": "notification_action"
+        }
+      },
+      "current": {
+        "current": {
+          "allow_filesystem_write": false,
+          "allow_network": false,
+          "feedback": {
+            "avg_latency": 0,
+            "failures": 0,
+            "last_latency": 0,
+            "successes": 0,
+            "violations": 0
+          },
+          "name": "notify:user",
+          "ref": "",
+          "release_channel": "",
+          "risk_score": 0,
+          "running": 0,
+          "runtime_profile": "",
+          "sandbox_profile": "",
+          "trust_score": 0,
+          "type": "notification_action"
+        }
+      }
+    }
+  },
+  "audit": [
+    {
+      "seq": 1,
+      "id": "3780f8e9-dd87-4f66-9f97-0bff35262120",
+      "actor": "admin",
+      "role": "admin",
+      "action": "secret.rotate",
+      "resource": "KRILL_ROTATE",
+      "occurred_at": "2026-03-07T13:38:11.956603Z",
+      "changes": {
+        "revision": 1
+      },
+      "hash": "90ac0fd5fb2a79d52740c82c7aae2b8fdbeae4ff809dcf9e01b0d74962b6eab6"
+    },
+    {
+      "seq": 2,
+      "id": "9a17da37-3653-4dc4-8355-6d092f24916a",
+      "actor": "operator",
+      "role": "operator",
+      "action": "schedule.pause",
+      "resource": "nightly",
+      "occurred_at": "2026-03-07T13:38:11.957165Z",
+      "prev_hash": "90ac0fd5fb2a79d52740c82c7aae2b8fdbeae4ff809dcf9e01b0d74962b6eab6",
+      "hash": "98e2f580cd56603b37d83df9a29a14ecf315a818edbaeeb2f2ae4f36b8e4c6e1"
+    },
+    {
+      "seq": 3,
+      "id": "2c7fafca-be07-418e-b264-2d00b43ed2c1",
+      "actor": "admin",
+      "role": "admin",
+      "action": "rollout.rollback",
+      "resource": "planner/default",
+      "occurred_at": "2026-03-07T13:38:11.957647Z",
+      "changes": {
+        "rollout_id": "33002435-f08b-4f17-a29b-0b89d1ca6332"
+      },
+      "prev_hash": "98e2f580cd56603b37d83df9a29a14ecf315a818edbaeeb2f2ae4f36b8e4c6e1",
+      "hash": "cdf390071b7472d9fda5c2390fcd9e16d1812c3000b10396dc5e8dee02d5961a"
+    },
+    {
+      "seq": 4,
+      "id": "e912610d-083b-4e0a-9b7e-803f527ba466",
+      "actor": "admin",
+      "role": "admin",
+      "action": "secret.rotate",
+      "resource": "KRILL_ROTATE",
+      "occurred_at": "2026-03-07T13:38:31.138038Z",
+      "changes": {
+        "revision": 2
+      },
+      "prev_hash": "cdf390071b7472d9fda5c2390fcd9e16d1812c3000b10396dc5e8dee02d5961a",
+      "hash": "35f655b54148a43368d069ec8b9888e5fa74ec5596e610b185f23116c681d660"
+    },
+    {
+      "seq": 5,
+      "id": "8cdbd5c6-433f-490f-9f62-ee009673df2f",
+      "actor": "operator",
+      "role": "operator",
+      "action": "schedule.pause",
+      "resource": "nightly",
+      "occurred_at": "2026-03-07T13:38:31.138094Z",
+      "prev_hash": "35f655b54148a43368d069ec8b9888e5fa74ec5596e610b185f23116c681d660",
+      "hash": "372e016b188b25fe7887cda87622342482d4f57fa9ebe843cd7ba3b4ebd4ca27"
+    },
+    {
+      "seq": 6,
+      "id": "6cc048fc-c942-4139-b36f-c38e2b320c0f",
+      "actor": "admin",
+      "role": "admin",
+      "action": "rollout.rollback",
+      "resource": "planner/default",
+      "occurred_at": "2026-03-07T13:38:31.138147Z",
+      "changes": {
+        "rollout_id": "b6a7738b-13ef-410d-a518-1e4a222bf91f"
+      },
+      "prev_hash": "372e016b188b25fe7887cda87622342482d4f57fa9ebe843cd7ba3b4ebd4ca27",
+      "hash": "c71c8eb0ee7b170e33481991daffe4a4433ec05cb40638f9047db7aa04cabf6b"
+    }
+  ],
+  "last_hash": "c71c8eb0ee7b170e33481991daffe4a4433ec05cb40638f9047db7aa04cabf6b",
+  "seq": 6
+}

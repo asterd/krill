@@ -15,6 +15,7 @@ import (
 
 	"github.com/krill/krill/config"
 	"github.com/krill/krill/internal/bus"
+	"github.com/krill/krill/internal/controlplane"
 	"github.com/krill/krill/internal/llm"
 	"github.com/krill/krill/internal/memory"
 	"github.com/krill/krill/internal/orchestrator"
@@ -105,7 +106,7 @@ func New(cfg *config.Root, log *slog.Logger) (*Engine, error) {
 		log.Info("protocol registered", "name", ref.Name)
 	}
 
-	return &Engine{
+	engine := &Engine{
 		cfg:    cfg,
 		log:    log,
 		bus:    b,
@@ -115,7 +116,14 @@ func New(cfg *config.Root, log *slog.Logger) (*Engine, error) {
 		skills: skillReg,
 		mem:    mem,
 		sess:   sessionSvc,
-	}, nil
+	}
+	controlplane.Install(controlplane.Runtime{
+		Config:       cfg,
+		Orchestrator: orch,
+		Scheduler:    sched,
+		Sessions:     sessionSvc,
+	})
+	return engine, nil
 }
 
 func copyConfigMap(in map[string]interface{}) map[string]interface{} {
@@ -172,6 +180,11 @@ func (e *Engine) Run(ctx context.Context) error {
 	if e.sess != nil {
 		if err := e.sess.Shutdown(); err != nil {
 			e.log.Warn("session shutdown error", "err", err)
+		}
+	}
+	if cp := controlplane.Current(); cp != nil {
+		if err := cp.Flush(); err != nil {
+			e.log.Warn("control plane flush error", "err", err)
 		}
 	}
 	return nil

@@ -22,6 +22,10 @@ otel:
   flush_interval_ms: 5000
   console_debug: false             # if true print text span-end logs in console
 
+control_plane:
+  path: ./.krill/control-plane.json
+  audit_retention: 5000
+
 llm:
   default: gpt4o
   backends:
@@ -44,6 +48,12 @@ protocols:
     config:
       addr: ":8080"
       api_key: ""        # leave empty to disable auth, or set $HTTP_API_KEY
+      control_plane:
+        enabled: true
+        tokens:
+          viewer: $KRILL_CONTROL_VIEWER_TOKEN
+          operator: $KRILL_CONTROL_OPERATOR_TOKEN
+          admin: $KRILL_CONTROL_ADMIN_TOKEN
 
   - name: telegram
     enabled: false

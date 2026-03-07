@@ -12,6 +12,12 @@
 ./deploy/scripts/k8s/install.sh
 ```
 
+Control-plane tokens should be provided through your values overlay or cluster secret/env injection:
+
+- `KRILL_CONTROL_VIEWER_TOKEN`
+- `KRILL_CONTROL_OPERATOR_TOKEN`
+- `KRILL_CONTROL_ADMIN_TOKEN`
+
 Use overlays via `KRILL_VALUES_OVERLAY`:
 
 ```bash
@@ -30,6 +36,14 @@ PubSub profiles (M1):
 ./deploy/scripts/k8s/up-minikube.sh
 ```
 
+After install, validate parity and control-plane readiness:
+
+```bash
+kubectl port-forward deploy/krill 8080:8080 -n ${KRILL_NAMESPACE:-krill-dev}
+curl -H "Authorization: Bearer $KRILL_CONTROL_VIEWER_TOKEN" http://127.0.0.1:8080/v1/control/readiness
+curl -H "Authorization: Bearer $KRILL_CONTROL_VIEWER_TOKEN" http://127.0.0.1:8080/v1/control/diagnostics
+```
+
 Local compose bootstrap with PubSub profile parity:
 
 ```bash
@@ -42,3 +56,5 @@ KRILL_PUBSUB_PROFILE=redis ./deploy/scripts/dev/up.sh
 ```bash
 ./deploy/scripts/k8s/uninstall.sh
 ```
+
+Operational runbook: `deploy/docs/runbook.md`

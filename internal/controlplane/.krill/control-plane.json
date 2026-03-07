@@ -1,0 +1,400 @@
+{
+  "schema_version": "v1",
+  "planner_override": {
+    "progressive_mode": "monitor",
+    "default_sandbox_profile": "balanced",
+    "default_runtime_profile": "default"
+  },
+  "capability_overrides": {
+    "deploy:asset": {
+      "Name": "deploy:asset",
+      "Type": "deployment_action",
+      "Ref": "deploy:asset",
+      "Description": "",
+      "ReleaseChannel": "",
+      "RuntimeProfile": "",
+      "SandboxProfile": "",
+      "Protocols": null,
+      "Workflows": null,
+      "AllowedAgents": null,
+      "RequiredSecrets": null,
+      "RequiredApprovals": 0,
+      "AllowNetwork": false,
+      "AllowFilesystemWrite": false,
+      "MaxTimeoutMs": 0,
+      "CostWeight": 0,
+      "LatencyWeight": 0,
+      "TrustScore": 0,
+      "RiskScore": 0,
+      "MaxConcurrency": 0,
+      "Fallbacks": null
+    }
+  },
+  "schedule_overrides": {
+    "nightly": {
+      "ID": "nightly",
+      "CronExpr": "*/5 * * * *",
+      "Timezone": "",
+      "Target": "wf-nightly",
+      "PayloadTemplate": "run-2",
+      "ConcurrencyPolicy": "allow",
+      "Enabled": false,
+      "MissedRunPolicy": "skip",
+      "RetryLimit": 0,
+      "RetryBackoffMs": 0,
+      "SessionMode": "persistent",
+      "Tenant": "",
+      "ClientID": "",
+      "ThreadID": ""
+    }
+  },
+  "secrets": {
+    "KRILL_ROTATED_SECRET": {
+      "name": "KRILL_ROTATED_SECRET",
+      "revision": 1,
+      "updated_at": "2026-03-07T13:38:27.94995Z"
+    }
+  },
+  "approvals": {
+    "req-1": {
+      "request_id": "req-1",
+      "status": "approved",
+      "approver": "alice",
+      "comment": "go",
+      "updated_at": "2026-03-07T13:38:27.949957Z"
+    }
+  },
+  "rollouts": {
+    "9c1b9164-827d-4812-bfe1-41a7b2ac0235": {
+      "id": "9c1b9164-827d-4812-bfe1-41a7b2ac0235",
+      "kind": "schedule",
+      "target": "nightly",
+      "status": "applied",
+      "dry_run": false,
+      "created_at": "2026-03-07T13:38:27.949933Z",
+      "applied_at": "2026-03-07T13:38:27.949935Z",
+      "previous": {
+        "previous": {
+          "ID": "nightly",
+          "CronExpr": "*/5 * * * *",
+          "Timezone": "",
+          "Target": "wf-nightly",
+          "PayloadTemplate": "run-2",
+          "ConcurrencyPolicy": "allow",
+          "Enabled": false,
+          "MissedRunPolicy": "skip",
+          "RetryLimit": 0,
+          "RetryBackoffMs": 0,
+          "SessionMode": "persistent",
+          "Tenant": "",
+          "ClientID": "",
+          "ThreadID": ""
+        }
+      },
+      "current": {
+        "current": {
+          "ID": "nightly",
+          "CronExpr": "*/5 * * * *",
+          "Timezone": "",
+          "Target": "wf-nightly",
+          "PayloadTemplate": "run-2",
+          "ConcurrencyPolicy": "",
+          "Enabled": true,
+          "MissedRunPolicy": "",
+          "RetryLimit": 0,
+          "RetryBackoffMs": 0,
+          "SessionMode": "",
+          "Tenant": "",
+          "ClientID": "",
+          "ThreadID": ""
+        }
+      }
+    },
+    "ab4fb2c3-75e0-456b-8ea1-b32f66f361cf": {
+      "id": "ab4fb2c3-75e0-456b-8ea1-b32f66f361cf",
+      "kind": "capability",
+      "target": "deploy:asset",
+      "status": "rolled_back",
+      "dry_run": false,
+      "created_at": "2026-03-07T13:38:27.949903Z",
+      "applied_at": "2026-03-07T13:38:27.949984Z",
+      "previous": {
+        "previous": {
+          "name": "deploy:asset",
+          "type": "deployment_action",
+          "ref": "deploy:asset",
+          "release_channel": "stable",
+          "runtime_profile": "default",
+          "sandbox_profile": "balanced",
+          "allow_network": false,
+          "allow_filesystem_write": false,
+          "trust_score": 60,
+          "risk_score": 0,
+          "feedback": {
+            "successes": 0,
+            "failures": 0,
+            "violations": 0,
+            "avg_latency": 0,
+            "last_latency": 0
+          },
+          "running": 0
+        }
+      },
+      "current": {
+        "current": {
+          "name": "deploy:asset",
+          "type": "deployment_action",
+          "ref": "",
+          "release_channel": "candidate",
+          "runtime_profile": "opencode",
+          "sandbox_profile": "extended",
+          "required_approvals": 1,
+          "allow_network": false,
+          "allow_filesystem_write": false,
+          "trust_score": 0,
+          "risk_score": 0,
+          "feedback": {
+            "successes": 0,
+            "failures": 0,
+            "violations": 0,
+            "avg_latency": 0,
+            "last_latency": 0
+          },
+          "running": 0
+        }
+      }
+    },
+    "af0659eb-6b99-4aea-8f5d-e659675443e1": {
+      "id": "af0659eb-6b99-4aea-8f5d-e659675443e1",
+      "kind": "planner",
+      "target": "planner/default",
+      "status": "rolled_back",
+      "dry_run": false,
+      "created_at": "2026-03-07T13:38:27.949865Z",
+      "applied_at": "2026-03-07T13:38:27.949989Z",
+      "previous": {
+        "previous": {
+          "progressive_mode": "monitor",
+          "default_sandbox_profile": "balanced",
+          "default_runtime_profile": "default"
+        }
+      },
+      "current": {
+        "current": {
+          "progressive_mode": "enforce",
+          "default_sandbox_profile": "balanced",
+          "default_runtime_profile": "default"
+        }
+      }
+    }
+  },
+  "audit": [
+    {
+      "seq": 1,
+      "id": "18fed87f-fdf5-46b3-8240-c0652bb5555f",
+      "actor": "alice",
+      "role": "operator",
+      "action": "planner.update",
+      "resource": "planner/default",
+      "occurred_at": "2026-03-07T13:38:27.949866Z",
+      "changes": {
+        "current": {
+          "progressive_mode": "enforce",
+          "default_sandbox_profile": "balanced",
+          "default_runtime_profile": "default"
+        },
+        "previous": {
+          "progressive_mode": "monitor",
+          "default_sandbox_profile": "balanced",
+          "default_runtime_profile": "default"
+        }
+      },
+      "hash": "c2309699a0c4385d86502c150d0fb3baa0688a3854785b803e272dd392f78048"
+    },
+    {
+      "seq": 2,
+      "id": "e0af308b-f2c0-4606-93af-762345a15104",
+      "actor": "alice",
+      "role": "operator",
+      "action": "capability.apply",
+      "resource": "deploy:asset",
+      "occurred_at": "2026-03-07T13:38:27.949904Z",
+      "changes": {
+        "current": {
+          "name": "deploy:asset",
+          "type": "deployment_action",
+          "ref": "deploy:asset",
+          "release_channel": "candidate",
+          "runtime_profile": "opencode",
+          "sandbox_profile": "extended",
+          "required_approvals": 1,
+          "allow_network": false,
+          "allow_filesystem_write": false,
+          "trust_score": 60,
+          "risk_score": 0,
+          "feedback": {
+            "successes": 0,
+            "failures": 0,
+            "violations": 0,
+            "avg_latency": 0,
+            "last_latency": 0
+          },
+          "running": 0
+        },
+        "previous": {
+          "name": "deploy:asset",
+          "type": "deployment_action",
+          "ref": "deploy:asset",
+          "release_channel": "stable",
+          "runtime_profile": "default",
+          "sandbox_profile": "balanced",
+          "allow_network": false,
+          "allow_filesystem_write": false,
+          "trust_score": 60,
+          "risk_score": 0,
+          "feedback": {
+            "successes": 0,
+            "failures": 0,
+            "violations": 0,
+            "avg_latency": 0,
+            "last_latency": 0
+          },
+          "running": 0
+        }
+      },
+      "prev_hash": "c2309699a0c4385d86502c150d0fb3baa0688a3854785b803e272dd392f78048",
+      "hash": "e626a9deb09737b7b2e0b749175fcc0765db8e6b3853dfc721b52134066159ed"
+    },
+    {
+      "seq": 3,
+      "id": "d4563797-698c-48e1-a7c7-688a91c581f5",
+      "actor": "alice",
+      "role": "operator",
+      "action": "schedule.apply",
+      "resource": "nightly",
+      "occurred_at": "2026-03-07T13:38:27.949945Z",
+      "changes": {
+        "current": {
+          "ID": "nightly",
+          "CronExpr": "*/5 * * * *",
+          "Timezone": "",
+          "Target": "wf-nightly",
+          "PayloadTemplate": "run-2",
+          "ConcurrencyPolicy": "",
+          "Enabled": true,
+          "MissedRunPolicy": "",
+          "RetryLimit": 0,
+          "RetryBackoffMs": 0,
+          "SessionMode": "",
+          "Tenant": "",
+          "ClientID": "",
+          "ThreadID": ""
+        }
+      },
+      "prev_hash": "e626a9deb09737b7b2e0b749175fcc0765db8e6b3853dfc721b52134066159ed",
+      "hash": "b95a3248c9ddf090ad91dc911b246a66a7a530fb4df0d5e4c28b9e6ccc224218"
+    },
+    {
+      "seq": 4,
+      "id": "d24783c3-1d01-4b5f-a8fc-d5d72c0f79d8",
+      "actor": "alice",
+      "role": "admin",
+      "action": "secret.rotate",
+      "resource": "KRILL_ROTATED_SECRET",
+      "occurred_at": "2026-03-07T13:38:27.949951Z",
+      "changes": {
+        "revision": 1
+      },
+      "prev_hash": "b95a3248c9ddf090ad91dc911b246a66a7a530fb4df0d5e4c28b9e6ccc224218",
+      "hash": "57a4853bd04e2c4c98fab96682b9372d704e01a074986f1989131cb72d1cefeb"
+    },
+    {
+      "seq": 5,
+      "id": "8f7a10e5-520b-4f5f-9cbf-84077fe7683f",
+      "actor": "alice",
+      "role": "operator",
+      "action": "approval.approved",
+      "resource": "req-1",
+      "occurred_at": "2026-03-07T13:38:27.949957Z",
+      "changes": {
+        "comment": "go"
+      },
+      "prev_hash": "57a4853bd04e2c4c98fab96682b9372d704e01a074986f1989131cb72d1cefeb",
+      "hash": "daec35bed571fa896f0e5cc207bb033c91e196e626c4bd2e836a295bdf995eac"
+    },
+    {
+      "seq": 6,
+      "id": "9749b08d-914b-41c2-8fcd-9b1c5305a59b",
+      "actor": "alice",
+      "role": "operator",
+      "action": "schedule.trigger",
+      "resource": "nightly",
+      "occurred_at": "2026-03-07T13:38:27.949965Z",
+      "prev_hash": "daec35bed571fa896f0e5cc207bb033c91e196e626c4bd2e836a295bdf995eac",
+      "hash": "b97a3259ddccd380d28838465eea96ac41362386817e54c652180ebb282315fb"
+    },
+    {
+      "seq": 7,
+      "id": "1c760256-a600-4024-84aa-a0e731ed7640",
+      "actor": "alice",
+      "role": "operator",
+      "action": "schedule.pause",
+      "resource": "nightly",
+      "occurred_at": "2026-03-07T13:38:27.949968Z",
+      "prev_hash": "b97a3259ddccd380d28838465eea96ac41362386817e54c652180ebb282315fb",
+      "hash": "189bb095696c18860cce6c0f8e27fa640a4c876a883da9eb91b6944d4cda7e3a"
+    },
+    {
+      "seq": 8,
+      "id": "019e1d1a-ba01-4846-835d-f13b4be85da5",
+      "actor": "alice",
+      "role": "operator",
+      "action": "schedule.resume",
+      "resource": "nightly",
+      "occurred_at": "2026-03-07T13:38:27.949971Z",
+      "prev_hash": "189bb095696c18860cce6c0f8e27fa640a4c876a883da9eb91b6944d4cda7e3a",
+      "hash": "aa1b71ec53a6e18977dc5893ca81ee0d50a5cc85834e9d9add5aec1bfdb59d39"
+    },
+    {
+      "seq": 9,
+      "id": "27c4d290-f996-4b41-8a24-07ea110c7c41",
+      "actor": "alice",
+      "role": "operator",
+      "action": "schedule.cancel",
+      "resource": "nightly",
+      "occurred_at": "2026-03-07T13:38:27.949974Z",
+      "prev_hash": "aa1b71ec53a6e18977dc5893ca81ee0d50a5cc85834e9d9add5aec1bfdb59d39",
+      "hash": "57a23f24ae1084e1a55db740ef4b0de863efd79c0236861a5b7144572d067a1e"
+    },
+    {
+      "seq": 10,
+      "id": "8d4ee198-bd58-4416-94a2-d12e8231a066",
+      "actor": "alice",
+      "role": "admin",
+      "action": "rollout.rollback",
+      "resource": "deploy:asset",
+      "occurred_at": "2026-03-07T13:38:27.949985Z",
+      "changes": {
+        "rollout_id": "ab4fb2c3-75e0-456b-8ea1-b32f66f361cf"
+      },
+      "prev_hash": "57a23f24ae1084e1a55db740ef4b0de863efd79c0236861a5b7144572d067a1e",
+      "hash": "55169bba6239fedd391722b75b1ab30add72dcca90d6464a28ce1c860e705600"
+    },
+    {
+      "seq": 11,
+      "id": "8f273611-7146-4233-b4f0-2f41800a8489",
+      "actor": "alice",
+      "role": "admin",
+      "action": "rollout.rollback",
+      "resource": "planner/default",
+      "occurred_at": "2026-03-07T13:38:27.949989Z",
+      "changes": {
+        "rollout_id": "af0659eb-6b99-4aea-8f5d-e659675443e1"
+      },
+      "prev_hash": "55169bba6239fedd391722b75b1ab30add72dcca90d6464a28ce1c860e705600",
+      "hash": "2b0f47dfabc8ff2b1b54b6bf658bc0fc7d20b194515b571d5dc1460e5a54f3fd"
+    }
+  ],
+  "last_hash": "2b0f47dfabc8ff2b1b54b6bf658bc0fc7d20b194515b571d5dc1460e5a54f3fd",
+  "seq": 11
+}

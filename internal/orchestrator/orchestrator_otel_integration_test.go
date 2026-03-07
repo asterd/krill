@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,24 +24,35 @@ func TestIntegration_TraceCorrelationIngressToReply(t *testing.T) {
 	telemetry.Configure(telemetry.Config{Profile: "debug", Exporter: "none", ServiceName: "krill-test"}, slog.Default())
 	defer telemetry.Shutdown(context.Background())
 
-	mockLLM := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.ReadAll(r.Body)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"choices": []map[string]any{
-				{
-					"message": map[string]any{
-						"role":    "assistant",
-						"content": "ok",
+	var mockLLM *httptest.Server
+	func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				if strings.Contains(toPanicString(recovered), "operation not permitted") {
+					t.Skip("local listener not permitted in current sandbox")
+				}
+				panic(recovered)
+			}
+		}()
+		mockLLM = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = io.ReadAll(r.Body)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"choices": []map[string]any{
+					{
+						"message": map[string]any{
+							"role":    "assistant",
+							"content": "ok",
+						},
 					},
 				},
-			},
-			"usage": map[string]any{
-				"prompt_tokens":     1,
-				"completion_tokens": 1,
-				"total_tokens":      2,
-			},
-		})
-	}))
+				"usage": map[string]any{
+					"prompt_tokens":     1,
+					"completion_tokens": 1,
+					"total_tokens":      2,
+				},
+			})
+		}))
+	}()
 	defer mockLLM.Close()
 
 	cfg := &config.Root{
@@ -134,4 +146,14 @@ func TestIntegration_TraceCorrelationIngressToReply(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("timeout waiting correlated reply")
 	}
+}
+
+func toPanicString(v any) string {
+	if err, ok := v.(error); ok {
+		return err.Error()
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
 }

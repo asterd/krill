@@ -16,6 +16,7 @@ import (
 type Root struct {
 	Core         CoreConfig         `yaml:"core"`
 	OTEL         OTELConfig         `yaml:"otel"`
+	ControlPlane ControlPlaneConfig `yaml:"control_plane"`
 	LLM          LLMPool            `yaml:"llm"`
 	Sessions     SessionConfig      `yaml:"sessions"`
 	Scheduler    SchedulerConfig    `yaml:"scheduler"`
@@ -26,6 +27,11 @@ type Root struct {
 	OrgSchemas   []OrgSchemaConfig  `yaml:"org_schemas"`
 	Skills       []SkillConfig      `yaml:"skills"`
 	Capabilities []CapabilityConfig `yaml:"capabilities"`
+}
+
+type ControlPlaneConfig struct {
+	Path           string `yaml:"path"`
+	AuditRetention int    `yaml:"audit_retention"`
 }
 
 // OTELConfig configures tracing and metrics export behavior.
@@ -317,6 +323,10 @@ func defaults() *Root {
 			FlushIntervalMs: 5000,
 			ConsoleDebug:    false,
 		},
+		ControlPlane: ControlPlaneConfig{
+			Path:           "./.krill/control-plane.json",
+			AuditRetention: 5000,
+		},
 		Sessions: SessionConfig{
 			Enabled:                  false,
 			Path:                     "./.krill/sessions.json",
@@ -388,6 +398,16 @@ func (c *Root) validate() error {
 	}
 	if err := c.validatePlanner(); err != nil {
 		return err
+	}
+	if err := c.validateControlPlane(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *Root) validateControlPlane() error {
+	if c.ControlPlane.AuditRetention < 0 {
+		return fmt.Errorf("control_plane.audit_retention must be >= 0")
 	}
 	return nil
 }
