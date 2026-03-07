@@ -401,6 +401,9 @@ Detailed instructions per milestone:
 - [M4.5 - Runtime Kernel Refactor](/Users/ddurzo/Development/python/krill/docs/spec/milestones/M4.5.md)
 - [M5 - Capability Governance + Lightweight Planning Engine](/Users/ddurzo/Development/python/krill/docs/spec/milestones/M5.md)
 - [M6 - Enterprise Control Plane + Planner Operations](/Users/ddurzo/Development/python/krill/docs/spec/milestones/M6.md)
+- [M7 - Product Completion + Enterprise Skill and Asset Runtime](/Users/ddurzo/Development/python/krill/docs/spec/milestones/M7.md)
+- [M8 - Graph Planner + Capability Retrieval + Composable Skill Runtime](/Users/ddurzo/Development/python/krill/docs/spec/milestones/M8.md)
+- [M8.5 - Performance Hardening + Latency Budgets + Runtime Tightening](/Users/ddurzo/Development/python/krill/docs/spec/milestones/M8.5.md)
 
 Planning companion:
 
@@ -418,6 +421,9 @@ Declarative/versioned evolution distribution:
 - M4: versioned context/session primitives (branch/merge/checkpoint/audit)
 - M4.5: runtime kernel refactor (event backbone + state plane + execution model)
 - M5: lightweight planning engine + intelligent capability selection + trust/policy-aware execution
+- M7: baseline product completion across channels, skills, schedules, and governed operational flows
+- M8: advanced execution intelligence (graph planning + capability retrieval + composable nested runtime)
+- M8.5: performance hardening and latency-budget enforcement for advanced planner/runtime paths
 
 ## Implementation Prompt Template (Reusable)
 
