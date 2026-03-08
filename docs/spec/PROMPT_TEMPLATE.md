@@ -1,6 +1,6 @@
 # Universal Milestone Kickoff Prompt
 
-Usa questo prompt sostituendo `<MILESTONE_ID>` con `M0..M7` o `M4.5` quando richiesto.
+Usa questo prompt sostituendo `<MILESTONE_ID>` con `M0..M8.5` includendo `M4.5` e `M7.5` quando richiesto.
 
 ```text
 Implementa la milestone <MILESTONE_ID> usando come fonte unica:
@@ -19,10 +19,12 @@ Obiettivi operativi:
    - capacità attuale del codice
    - use-case in docs/spec/USE_CASES.md
    - coverage target dichiarato nella milestone
-6) Per le milestone M5/M6/M7 tratta gli use-case come criterio primario di completamento:
+6) Per le milestone M5/M6/M7/M7.5/M8 tratta gli use-case come criterio primario di completamento:
    - M5: chiusura gap architetturali e di governance/planning
    - M6: chiusura gap operativi/control-plane/runtime parity
-   - M7: chiusura gap di prodotto end-to-end
+   - M7: chiusura gap di prodotto baseline end-to-end
+   - M7.5: chiusura gap canali dedicati + HITL/resume + connector productization
+   - M8: chiusura gap di execution intelligence stile Skill OS
 7) Considera A2UI fuori scope salvo richiesta esplicita o milestone dedicata.
 
 Quality gates obbligatori:

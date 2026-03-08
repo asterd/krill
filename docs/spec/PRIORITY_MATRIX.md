@@ -31,8 +31,9 @@ Legenda:
 | Helm chart + minikube bootstrap | M6 | H | M | M | M0-M5 | Parità cluster | Script one-command anche per mini-kube |
 | Kubernetes/OpenShift install docs + validation | M6 | M | L | M | M6 Helm | Enterprise adoption | Validare SCC/security context OpenShift |
 | Control Plane API + RBAC + audit | M6 | H | H | H | M2-M5 | Governance enterprise | Preferire rollout progressivo |
-| Product completion channels + direct skill/API surfaces | M7 | H | H | H | M0-M6 | Baseline prodotto end-to-end | Non richiede ancora graph planner arbitrario |
-| Graph planner + capability retrieval + nested skill runtime | M8 | H | H | H | M5-M7 | Execution intelligence avanzata | Estende M7 senza invalidarne il baseline |
+| Baseline product completion + direct skill/API surfaces | M7 | H | H | H | M0-M6 | Baseline prodotto end-to-end | Usa canali già presenti; no parity completa chat adapters |
+| Channel completion + HITL product flows + operational connectors | M7.5 | H | H | H | M0-M7 | Superficie Skill OS credibile | Chiude gap su Slack/Discord/WhatsApp e resume/approval |
+| Graph planner + capability retrieval + nested skill runtime | M8 | H | H | H | M5-M7.5 | Execution intelligence avanzata | Estende M7.5 senza invalidarne il baseline |
 | Performance hardening + latency budgets | M8.5 | H | H | H | M8 | Runtime ultra-leggero sotto carico | Ottimizzazione obbligatoria, non cosmetica |
 
 ## Ordine Consigliato Reale (Execution Wave)
@@ -46,8 +47,9 @@ Legenda:
 7. Wave 7 (planning, capability intelligence, sicurezza hard): `M5` completo.
 8. Wave 8 (productization cluster/governance): `M6` completo.
 9. Wave 9 (baseline product end-to-end): `M7` completo.
-10. Wave 10 (advanced execution intelligence): `M8` completo.
-11. Wave 11 (performance hardening): `M8.5` completo.
+10. Wave 10 (channel completion + HITL surfaces): `M7.5` completo.
+11. Wave 11 (advanced execution intelligence): `M8` completo.
+12. Wave 12 (performance hardening): `M8.5` completo.
 
 ## Risk Hotspots (da monitorare)
 
@@ -57,9 +59,10 @@ Legenda:
 4. `M4.5` kernel refactor: rischio di introdurre regressioni nel path base se il nuovo contract non è testato bene.
 5. `M5` policy + intelligent selector: rischio blocchi falsi positivi o selection bias.
 6. `M6` control plane coupling: rischio impatti sul data plane in failure mode.
-7. `M7` product completion: rischio claim troppo ampi rispetto alle reali capacità planner/runtime se non si mantiene scope baseline.
-8. `M8` graph planner + retrieval: rischio over-engineering e overhead eccessivo se non si tengono limiti stretti.
-9. `M8.5` hardening: rischio ottimizzazioni che rompano correttezza o osservabilità.
+7. `M7` product completion: rischio claim troppo ampi rispetto alla reale copertura canali se non si limita lo scope.
+8. `M7.5` channel/HITL completion: rischio complessità prodotto e provider coupling se non si standardizzano bene i contratti di wait/resume.
+9. `M8` graph planner + retrieval: rischio over-engineering e overhead eccessivo se non si tengono limiti stretti.
+10. `M8.5` hardening: rischio ottimizzazioni che rompano correttezza o osservabilità.
 
 ## KPI Gate per Go/No-Go tra milestone
 

@@ -11,8 +11,9 @@ Ordered execution:
 7. [M5](/Users/ddurzo/Development/python/krill/docs/spec/milestones/M5.md)
 8. [M6](/Users/ddurzo/Development/python/krill/docs/spec/milestones/M6.md)
 9. [M7](/Users/ddurzo/Development/python/krill/docs/spec/milestones/M7.md)
-10. [M8](/Users/ddurzo/Development/python/krill/docs/spec/milestones/M8.md)
-11. [M8.5](/Users/ddurzo/Development/python/krill/docs/spec/milestones/M8.5.md)
+10. [M7.5](/Users/ddurzo/Development/python/krill/docs/spec/milestones/M7.5.md)
+11. [M8](/Users/ddurzo/Development/python/krill/docs/spec/milestones/M8.md)
+12. [M8.5](/Users/ddurzo/Development/python/krill/docs/spec/milestones/M8.5.md)
 
 Each milestone is independently deployable and must satisfy the global quality contract in [SPEC.md](/Users/ddurzo/Development/python/krill/docs/spec/SPEC.md).
 
